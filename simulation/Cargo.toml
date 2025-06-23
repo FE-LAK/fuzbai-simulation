@@ -1,0 +1,19 @@
+[package]
+name = "fuzbai_simulator"
+version = "3.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = "0.24.2"
+mujoco_rs = {path = "../mujoco_rust/"}
+agent_rust = {path = "../fuzbai-agent/"}
+rand = "0.9.1"
+pyo3-stub-gen = {version = "0.8.2", optional = true }
+glfw = "0.59.0"
+
+[features]
+# Only compile the stub-gen when generating stub files
+stub-gen = ["pyo3-stub-gen"]
