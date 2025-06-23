@@ -21,11 +21,11 @@ target/
 #.idea/
 
 # Rust libs
-rust/mujoco_rust/lib/*
+mujoco_rust/lib/*
 
 # C bindings
-rust/mujoco_rust/src/mujoco_c.rs
-rust/mujoco_rust/src/lodepng_c.rs
+mujoco_rust/src/mujoco_c.rs
+mujoco_rust/src/lodepng_c.rs
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
