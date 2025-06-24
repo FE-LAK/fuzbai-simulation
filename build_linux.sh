@@ -22,7 +22,10 @@ cmake --build build --parallel --target libsimulate --config=Release
 
 cd $CWD
 
-# # Build the simulator
+# Build the model
+cargo run --release --bin mujoco-model-compiler
+
+# Build the simulator
 cd simulation/
 cargo run --release --features stub-gen --bin stub_gen
 maturin build -r

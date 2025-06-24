@@ -1,0 +1,7 @@
+[package]
+name = "mujoco-model-compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mujoco_rs = {path = "../mujoco_rust/"}
