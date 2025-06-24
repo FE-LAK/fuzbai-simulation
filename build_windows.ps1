@@ -25,6 +25,9 @@ cmake --build build --config Release --parallel --target libsimulate
 # Return to original directory
 Pop-Location
 
+# Build the model
+cargo run --release --bin mujoco-model-compiler
+
 # Build the simulator
 Push-Location 'simulation'
 cargo run --release --features stub-gen --bin stub_gen
