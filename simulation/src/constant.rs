@@ -162,8 +162,8 @@ pub const BALL_RADIUS_M: f64 = 0.0175;
 /// The color of ball's estimate display.
 pub const BALL_ESTIMATE_RGBA: [f32; 4] = [1.0, 1.0, 0.0, 1.0];
 
-/// The default path to the model definition file (MJCF) - relative to the current directory.
-pub const MUJOCO_DEFAULT_XML_PATH: &str = "./environment/models/miza.xml";
+/// The default path to the compiled model - relative to the current directory.
+pub const MUJOCO_DEFAULT_MJB_PATH: &str = "./miza.mjb";
 
 // Error messages
 pub const E_NOT_ENOUGH_ELEMENTS: &str = "not enough elements";

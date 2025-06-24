@@ -1,0 +1,268 @@
+<mujoco model="FuzbAI Simulation">
+    <asset>
+        <material name="rod_red" rgba="1 0.35 0.35 1"/>
+        <material name="rod_blue" rgba="0.35 0.35 1 1"/>
+        <mesh file="wedge_bottom1.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="wedge_bottom2.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="wedge_upper1.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="wedge_upper2.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="ld_bump.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="rd_bump.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="lu_bump.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="ru_bump.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="igralec_zgoraj.stl" scale="0.001 0.001 0.001"/>
+        <mesh file="igralec_spodaj.stl" scale="0.001 0.001 0.001"/>
+    </asset>
+
+    <visual>
+        <scale framelength="0.2" framewidth="0.01" actuatorwidth="0.02" jointwidth="0.01"/>
+
+        <!-- OpenGL buffer size -->
+        <global offwidth="1920" offheight="1080"/>
+    </visual>
+
+    <option integrator="implicitfast" cone="elliptic"/>
+
+    <!-- Aktuatorji palic -->
+    <actuator>
+        <!-- <position name="p1_slide_ctrl" joint="p1_slide" kp="748.670" kv="86.152" forcerange="-4.873 4.873" ctrlrange="0 0.19"/>  Goalkeeper R -->
+        <!-- <position name="p2_slide_ctrl" joint="p2_slide" kp="584.092" kv="100" forcerange="-5.067 5.067" ctrlrange="0 0.356"/> Defense R -->
+        <!-- <position name="p3_slide_ctrl" joint="p3_slide" kp="887.858" kv="98.742" forcerange="-6.198 6.198" ctrlrange="0 0.18"/>  Attack B -->
+        <!-- <position name="p4_slide_ctrl" joint="p4_slide" kp="446.295" kv="49.567" forcerange="-7.924 7.924" ctrlrange="0 0.116"/> Offense R -->
+        <!-- <position name="p5_slide_ctrl" joint="p5_slide" kp="446.295" kv="49.567" forcerange="-7.924 7.924" ctrlrange="0 0.116"/> Offense B -->
+        <!-- <position name="p6_slide_ctrl" joint="p6_slide" kp="887.858" kv="98.742" forcerange="-6.198 6.198" ctrlrange="0 0.18"/>  Attack R -->
+        <!-- <position name="p7_slide_ctrl" joint="p7_slide" kp="584.092" kv="100" forcerange="-5.067 5.067" ctrlrange="0 0.356"/> Defense B -->
+        <!-- <position name="p8_slide_ctrl" joint="p8_slide" kp="748.670" kv="86.152" forcerange="-4.873 4.873" ctrlrange="0 0.19"/>  Goalkeeper B -->
+        <motor name="p1_slide_ctrl" joint="p1_slide"/>  <!-- Goalkeeper R -->
+        <motor name="p2_slide_ctrl" joint="p2_slide"/> <!-- Defense R -->
+        <motor name="p3_slide_ctrl" joint="p3_slide"/>  <!-- Attack B -->
+        <motor name="p4_slide_ctrl" joint="p4_slide"/> <!-- Offense R -->
+        <motor name="p5_slide_ctrl" joint="p5_slide"/> <!-- Offense B -->
+        <motor name="p6_slide_ctrl" joint="p6_slide"/>  <!-- Attack R -->
+        <motor name="p7_slide_ctrl" joint="p7_slide"/> <!-- Defense B -->
+        <motor name="p8_slide_ctrl" joint="p8_slide"/>  <!-- Goalkeeper B -->
+        <!-- <position name="p1_revolute_ctrl" joint="p1_revolute" kp="1.2" kv="0.05" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Goalkeeper R -->
+        <!-- <position name="p2_revolute_ctrl" joint="p2_revolute" kp="2" kv="0.09" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Defense R -->
+        <!-- <position name="p3_revolute_ctrl" joint="p3_revolute" kp="2.5" kv="0.1" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Attack B -->
+        <!-- <position name="p4_revolute_ctrl" joint="p4_revolute" kp="3.8" kv="0.15" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Offense R -->
+        <!-- <position name="p5_revolute_ctrl" joint="p5_revolute" kp="3.8" kv="0.15" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Offense B -->
+        <!-- <position name="p6_revolute_ctrl" joint="p6_revolute" kp="2.5" kv="0.1" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Attack R -->
+        <!-- <position name="p7_revolute_ctrl" joint="p7_revolute" kp="2" kv="0.09" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Defense B -->
+        <!-- <position name="p8_revolute_ctrl" joint="p8_revolute" kp="1.2" kv="0.05" forcerange="-15 15" ctrlrange="-6.283185307179586 6.283185307179586"/> Goalkeeper B -->
+        <motor name="p1_revolute_ctrl" joint="p1_revolute"/> <!-- Goalkeeper R -->
+        <motor name="p2_revolute_ctrl" joint="p2_revolute"/> <!-- Defense R -->
+        <motor name="p3_revolute_ctrl" joint="p3_revolute"/> <!-- Attack B -->
+        <motor name="p4_revolute_ctrl" joint="p4_revolute"/> <!-- Offense R -->
+        <motor name="p5_revolute_ctrl" joint="p5_revolute"/> <!-- Offense B -->
+        <motor name="p6_revolute_ctrl" joint="p6_revolute"/> <!-- Attack R -->
+        <motor name="p7_revolute_ctrl" joint="p7_revolute"/> <!-- Defense B -->
+        <motor name="p8_revolute_ctrl" joint="p8_revolute"/> <!-- Goalkeeper  -->
+
+
+        <!-- Dušenje žogice za namene raznolikosti žogic med epizodami -->
+        <damper name="ball_damp_x" kv="0.05" joint="ball" ctrlrange="0 0.3" gear="1 0 0 0 0 0"/>
+        <damper name="ball_damp_y" kv="0.05" joint="ball" ctrlrange="0 0.3" gear="0 1 0 0 0 0"/>
+    </actuator>
+
+    <!-- Izklop stikov med mizo in palicam -->
+    <contact>
+        <exclude body1="miza" body2="rod1"/>
+        <exclude body1="miza" body2="rod2"/>
+        <exclude body1="miza" body2="rod3"/>
+        <exclude body1="miza" body2="rod4"/>
+        <exclude body1="miza" body2="rod5"/>
+        <exclude body1="miza" body2="rod6"/>
+        <exclude body1="miza" body2="rod7"/>
+        <exclude body1="miza" body2="rod8"/>
+    </contact>
+
+    <worldbody>
+        <!-- Red goalkeeper's camera - demonstrational purposes -->
+        <camera name="cam_red_g" pos="0.387 0.398 0.190" xyaxes="-0.023 1.000 0.000 0 0 0.996"/>
+
+        <!-- Top closeup camera - demonstrational purposes -->
+        <camera name="cam_top_closeup" pos="0.720 0.358 1.228" xyaxes="1.000 0.0 0.000 0.0 1.000 0.017"/>
+
+        <!-- Top camera - competition visualization -->
+        <camera name="cam_top" pos="0.713 -0.056 2.043" xyaxes="1.000 0 0.000 0.000 1.000 0.225"/>
+
+        <!-- Vizualizacija koordinatnih sistemov -->
+        <site name="frame_red" pos="0.115 0.727 0.174" euler="180 0 0"/>
+        <site name="frame_blue" pos="1.322 0.025 0.174" euler="180 0 180"/>
+
+        <!-- Miza -->
+        <body name="miza" pos="0 0 0.174">
+            <!-- Glavna podlaga -->
+            <geom type="box" size="0.6115 0.376 0.087" pos="0.7185 0.376 -0.087" solref="0.004 1" friction="0 0 0"/>
+
+            <!-- Goal levo-spodaj -->
+            <geom type="box" size="0.0535 0.13675 0.087" pos="0.0535 0.13675 -0.087"/>
+            <geom type="box" size="0.0577415 0.12425 0.0855" pos="0.057752500000000005 0.14925 0.0855" friction="0 0 0" solref="0.02 0.25"/>
+
+            <!-- Goal levo-zgoraj -->
+            <geom type="box" size="0.0535 0.13675 0.087" pos="0.0535 0.61525 -0.087"/>
+            <geom type="box" size="0.0577415 0.12425 0.0855" pos="0.057752500000000005 0.60275 0.0855" friction="0 0 0" solref="0.02 0.25"/>
+
+            <!-- Goal levo-zadaj -->
+            <geom name="left-goal-back" type="box" size="0.0185 0.1025 0.1725" pos="0.0185 0.376 -0.0015"/>
+
+            <!-- Goal levo-luknja-spodaj -->
+            <geom name="left-goal-hole" type="box" size="0.060 0.1500 0.002" pos="0.060 0.376 -0.176"/>
+
+            <!-- Goal levo-precka -->
+            <geom type="box" size="0.039 0.105 0.025875" pos="0.076 0.376 0.11925"/>
+
+            <!-- Goal desno-spodaj -->
+            <geom type="box" size="0.0535 0.13675 0.087" pos="1.3835 0.13675 -0.087"/>
+            <geom type="box" size="0.0577415 0.12425 0.0855" pos="1.3792585000000002 0.14925 0.0855" friction="0 0 0" solref="0.02 0.25"/>
+
+            <!-- Goal desno-zgoraj -->
+            <geom type="box" size="0.0535 0.13675 0.087" pos="1.3835 0.61525 -0.087"/>
+            <geom type="box" size="0.0577415 0.12425 0.0855" pos="1.3792585000000002 0.60275 0.0855" friction="0 0 0" solref="0.02 0.25"/>
+
+            <!-- Goal desno-zadaj -->
+            <geom name="right-goal-back" type="box" size="0.0185 0.1025 0.1725" pos="1.4185 0.376 -0.0015"/>
+
+            <!-- Goal desno-luknja-spodaj -->
+            <geom name="right-goal-hole" type="box" size="0.060 0.1500 0.002" pos="1.377 0.376 -0.176"/>
+
+            <!-- Goal desno-precka -->
+            <geom type="box" size="0.039 0.105 0.025875" pos="1.361 0.376 0.11925"/>
+
+            <!-- Stena spodaj -->
+            <geom type="box" size="0.7185 0.0125 0.0855" pos="0.7185 0.0125 0.0855" friction="0 0 0" solref="0.02 0.25"/>
+            <!-- Stena zgoraj -->
+            <geom type="box" size="0.7185 0.0125 0.0855" pos="0.7185 0.7395 0.0855" friction="0 0 0" solref="0.02 0.25"/>
+
+            <!-- Stranska piramida spodaj -->
+            <geom type="mesh" mesh="wedge_bottom1" pos="0 0 -0.174"/>
+            <geom type="mesh" mesh="wedge_bottom2" pos="0 0 -0.174"/>
+
+            <!-- Stranska piramida zgoraj -->
+            <geom type="mesh" mesh="wedge_upper1" pos="0 0 -0.174"/>
+            <geom type="mesh" mesh="wedge_upper2" pos="0 0 -0.174"/>
+
+            <!-- Kotne klančine -->
+            <geom type="mesh" mesh="ld_bump" pos="0 0 -0.174" friction="0 0 0"/>
+            <geom type="mesh" mesh="rd_bump" pos="0 0 -0.174" friction="0 0 0"/>
+            <geom type="mesh" mesh="lu_bump" pos="0 0 -0.174" friction="0 0 0"/>
+            <geom type="mesh" mesh="ru_bump" pos="0 0 -0.174" friction="0 0 0"/>
+        </body>
+
+        <!-- Osvetlitev nad mizo -->
+        <light pos="0.7185 0.376 1" dir="0 0 -1" exponent="5" cutoff="90"/>
+
+        <!-- Palice -->
+        <body name="rod1" pos="0.195 0.021 0.2595">
+            <joint type="slide" name="p1_slide" axis="0 1 0" range="0 0.19"/>
+            <joint type="hinge" name="p1_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_red" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.258 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.258 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <body name="rod2" pos="0.345 0.023 0.2595">
+            <joint type="slide" name="p2_slide" axis="0 1 0" range="0 0.356"/>
+            <joint type="hinge" name="p2_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_red" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.055 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.055 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.293 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.293 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <body name="rod3" pos="0.495 0.025 0.2595">
+            <joint type="slide" name="p3_slide" axis="0 1 0" range="0 0.18"/>
+            <joint type="hinge" name="p3_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_blue" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.055 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.055 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.263 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.263 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.471 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.471 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <body name="rod4" pos="0.645 0.029 0.2595">
+            <joint type="slide" name="p4_slide" axis="0 1 0" range="0 0.116"/>
+            <joint type="hinge" name="p4_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_red" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.055 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.055 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.173 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.173 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.291 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.291 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.409 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.409 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.527 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.527 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <body name="rod5" pos="0.795 0.025 0.2595">
+            <joint type="slide" name="p5_slide" axis="0 1 0" range="0 0.116"/>
+            <joint type="hinge" name="p5_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_blue" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.055 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.055 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.173 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.173 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.291 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.291 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.409 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.409 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.527 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.527 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <body name="rod6" pos="0.945 0.021 0.2595">
+            <joint type="slide" name="p6_slide" axis="0 1 0" range="0 0.18"/>
+            <joint type="hinge" name="p6_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_red" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.055 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.055 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.263 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.263 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.471 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.471 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <body name="rod7" pos="1.095 0.025 0.2595">
+            <joint type="slide" name="p7_slide" axis="0 1 0" range="0 0.356"/>
+            <joint type="hinge" name="p7_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_blue" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.055 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.055 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.293 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.293 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <body name="rod8" pos="1.245 0.025 0.2595">
+            <joint type="slide" name="p8_slide" axis="0 1 0" range="0 0.19"/>
+            <joint type="hinge" name="p8_revolute" axis="0 1 0" range="-360 360"/>
+            <geom type="cylinder" size="0.007 0.40" pos="0 0.40 0" material="rod_blue" mass="0.9667308913626517" euler="90 0 0" contype="4" conaffinity="4"/>
+            <geom type="mesh" mesh="igralec_zgoraj" pos="0.0005 0.258 0" mass="0.139539" solref="0.004 1" friction="0.5 0 0"/>
+            <geom type="mesh" mesh="igralec_spodaj" pos="0.0005 0.258 0" mass="0.06976927" solref="0.004 1" friction="0.5 0 0"/>
+        </body>
+
+        <!-- Žogica -->
+        <body name="ball" pos="0.7185 0.376 0.274">
+            <geom name="ball" type="sphere" size="0.0175" mass="0.0287" solref="0.004 0.32" condim="6" friction="0.2 0.01 0.00005"/>
+            <joint name="ball" type="free"/>
+        </body>
+    </worldbody>
+</mujoco>

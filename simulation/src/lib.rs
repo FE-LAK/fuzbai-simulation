@@ -28,6 +28,10 @@ pub mod motors;
 pub mod types;
 
 
+/// Compiled MuJoCo model. Useful when compiling as a Python wheel or a Rust crate.
+const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
+
+
 /* Enum definitions */
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[pyclass(eq, eq_int, module = "fuzbai_simulator")]
@@ -207,9 +211,13 @@ impl FuzbAISimulator {
         assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
 
         let mj_model = G_MJ_MODEL.get_or_init(|| {
-            MjModel::from_xml(
-                model_path.unwrap_or_else(|| MUJOCO_DEFAULT_XML_PATH)
-            ).expect("could not load the MuJoCo model")
+            if let Some(path) = model_path {
+                MjModel::from_xml(path)
+            }
+            else {
+                MjModel::from_buffer(MJB_MODEL_DATA)
+            }
+            .expect("could not load the MuJoCo model")
         });
 
         let mut mj_data = MjData::new(mj_model);

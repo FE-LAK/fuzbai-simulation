@@ -27,6 +27,9 @@ mujoco_rust/lib/*
 mujoco_rust/src/mujoco_c.rs
 mujoco_rust/src/lodepng_c.rs
 
+# Compiled model
+miza.mjb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

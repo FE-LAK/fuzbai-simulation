@@ -1,6 +1,6 @@
 //! A set of wrappers around the MuJoCo types.
 use std::io::{Error, ErrorKind};
-use std::ffi::{c_int, CString};
+use std::ffi::{c_int, c_void, CString};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::ptr;
@@ -53,6 +53,13 @@ unsafe impl<T> Sync for MjMutPtrWrapper<T> {}
 
 unsafe impl Send for mjrContext {}
 unsafe impl Sync for mjrContext {}
+
+
+/* Private function bindings */
+unsafe extern "C" {
+    pub fn mj_loadModelBuffer(buffer: *const c_void, buffer_sz: c_int) -> *mut mjModel;
+}
+
 
 
 /* STRUCTS */
@@ -174,13 +181,25 @@ impl MjModel {
                 &mut error_buffer as *mut i8, error_buffer.len() as c_int
             );
 
-            if raw_ptr.is_null() {
-                let err_u8 = error_buffer.into_iter().map(|x| x as u8).take_while(|&x| x != 0).collect();
-                Err(Error::new(ErrorKind::UnexpectedEof,  String::from_utf8(err_u8).expect("could not parse error")))
-            }
-            else {
-                Ok(Self {lowlevel: MjMutPtrWrapper(raw_ptr)})
-            }
+            Self::_check_raw_model(raw_ptr, &error_buffer)
+        }
+    }
+
+    pub fn from_buffer(data: &[u8]) -> Result<Self, Error> {
+        unsafe {
+            // Create a virtual FS since we don't have direct access to the load buffer function.
+            let raw_ptr = mj_loadModelBuffer(data.as_ptr() as *const c_void, data.len() as i32);
+            Self::_check_raw_model(raw_ptr, &[])
+        }
+    }
+
+    fn _check_raw_model(ptr_model: *mut mjModel, error_buffer: &[i8]) -> Result<Self, Error> {
+        if ptr_model.is_null() {
+            let err_u8 = error_buffer.into_iter().map(|x| *x as u8).take_while(|&x| x != 0).collect();
+            Err(Error::new(ErrorKind::UnexpectedEof,  String::from_utf8(err_u8).expect("could not parse error")))
+        }
+        else {
+            Ok(Self {lowlevel: MjMutPtrWrapper(ptr_model)})
         }
     }
 }
