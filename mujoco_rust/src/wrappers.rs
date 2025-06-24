@@ -1,5 +1,5 @@
 //! A set of wrappers around the MuJoCo types.
-use std::io::{Error, ErrorKind};
+use std::io::{self, Error, ErrorKind};
 use std::ffi::{c_int, c_void, CString};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -53,14 +53,6 @@ unsafe impl<T> Sync for MjMutPtrWrapper<T> {}
 
 unsafe impl Send for mjrContext {}
 unsafe impl Sync for mjrContext {}
-
-
-/* Private function bindings */
-unsafe extern "C" {
-    pub fn mj_loadModelBuffer(buffer: *const c_void, buffer_sz: c_int) -> *mut mjModel;
-}
-
-
 
 /* STRUCTS */
 
@@ -187,9 +179,25 @@ impl MjModel {
 
     pub fn from_buffer(data: &[u8]) -> Result<Self, Error> {
         unsafe {
-            // Create a virtual FS since we don't have direct access to the load buffer function.
-            let raw_ptr = mj_loadModelBuffer(data.as_ptr() as *const c_void, data.len() as i32);
-            Self::_check_raw_model(raw_ptr, &[])
+            // Create a virtual FS since we don't have direct access to the load buffer function (or at least it isn't officially exposed).
+            // let raw_ptr = mj_loadModelBuffer(data.as_ptr() as *const c_void, data.len() as i32);
+            let raw_model;
+            let mut raw_vfs = mjVFS::default();
+            let filename = CString::new("miza.mjb").unwrap();
+
+            // Add the file into a virtual file system
+            mj_defaultVFS(&mut raw_vfs);
+            if mj_addBufferVFS(
+                &mut raw_vfs, filename.as_ptr(),
+                data.as_ptr() as *const c_void, data.len() as i32
+            ) != 0 {
+                return Err(Error::new(io::ErrorKind::UnexpectedEof, "could not load model (virtual FS)."));
+            };
+
+            // Load the model from the virtual file system
+            raw_model = mj_loadModel(filename.as_ptr(), &raw_vfs);
+            mj_deleteVFS(&mut raw_vfs);
+            Self::_check_raw_model(raw_model, &[])
         }
     }
 
