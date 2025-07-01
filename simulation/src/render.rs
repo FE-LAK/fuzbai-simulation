@@ -185,7 +185,7 @@ impl Visualizer {
 
     /// Renders to `scene` the `position` as the ball's estimate.
     #[inline]
-    pub fn render_ball_estimate(&mut self, scene: &mut MjvScene, position: XYZType) {
+    pub fn render_ball_estimate(&mut self, scene: &mut MjvScene, position: &XYZType) {
         unsafe {
             let raw_scene = scene.raw();
             assert!(raw_scene.ngeom < raw_scene.maxgeom);
@@ -202,7 +202,7 @@ impl Visualizer {
     }
 
     #[inline]
-    pub fn render_rods_estimates(&mut self, scene: &mut MjvScene, pos_rot: [XYType; 8]) {
+    pub fn render_rods_estimates(&mut self, scene: &mut MjvScene, pos_rot: &[(usize, f64, f64)]) {
         let raw_scene = unsafe { scene.raw() };
         let mut first_position;
         let mut pos_xyz: [f64; 3];
@@ -213,18 +213,17 @@ impl Visualizer {
         let mut offset_xyz;
         let mut vgeom;
         let mut dy;
-        for (i, [mut t, r]) in pos_rot.into_iter().enumerate() {
-            t =  1.0 - t;
-            first_position = ROD_TRAVELS[i] * t + ROD_FIRST_OFFSET[i];
-            pos_xyz = ROD_POSITIONS[i];
+        for (i, t, r) in pos_rot.into_iter() {
+            first_position = ROD_TRAVELS[*i] * (1.0 - t) + ROD_FIRST_OFFSET[*i];
+            pos_xyz = ROD_POSITIONS[*i];
             unsafe {
                 mju_axisAngle2Quat(quat.as_mut_ptr(), [0.0, 1.0, 0.0].as_ptr(), r * f64::consts::PI / 32.0);
                 mju_quat2Mat(mat.as_mut_ptr(), quat.as_ptr());
             }
 
-            for p in 0..ROD_N_PLAYERS[i] {
+            for p in 0..ROD_N_PLAYERS[*i] {
                 unsafe {
-                    dy = first_position + ROD_SPACING[i] * p as f64;
+                    dy = first_position + ROD_SPACING[*i] * p as f64;
                     pos_trans = pos_xyz;
                     pos_trans[1] += dy;
                     vgeom = raw_scene.geoms.add(raw_scene.ngeom as usize).as_mut().unwrap();

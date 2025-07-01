@@ -529,17 +529,14 @@ impl FuzbAISimulator {
                 }
 
                 dist = Uniform::new(-DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i], DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i]).unwrap();
-                // self.mj_data_joint_ball.qvel[i] = dist.sam
                 self.mj_data_joint_ball.qvel[i] = dist.sample(&mut rng);
             }
         }
 
         // Match the rotational velocity to achieve spinning (w = v / r)
-        let wx = self.mj_data_joint_ball.qvel[1] / BALL_RADIUS_M;
-        let wy = -self.mj_data_joint_ball.qvel[0] / BALL_RADIUS_M;
-        self.mj_data_joint_ball.qvel[3] = wx;
-        self.mj_data_joint_ball.qvel[4] = wy;
-        self.mj_data_joint_ball.qvel[5] = 0.0;
+        self.mj_data_joint_ball.qvel[3] = -self.mj_data_joint_ball.qvel[1] / BALL_RADIUS_M;
+        self.mj_data_joint_ball.qvel[4] =  self.mj_data_joint_ball.qvel[0] / BALL_RADIUS_M;
+        self.mj_data_joint_ball.qvel[5] =  0.0;
 
         // Reset other states
         self.mj_data_joint_ball.qacc_warmstart.fill(0.0);
@@ -560,32 +557,18 @@ impl FuzbAISimulator {
     /// The ``rod_tr`` parameter is an array of ``[translation, rotation]``,
     /// where the translation is in normalized units [0..1] and the rotation is in range of
     /// [-64, 64], representing an entire circle (360 deg) in any direction.
-    pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<[XYType;8]>) {
-        let delayed_obs = self.delayed_observation(PlayerTeam::RED, None);
-        let xyz_unwrapped;
-        let pos_rod_unwrapped;
-
-        if let Some(ball_xyz) = ball_xyz {
-            xyz_unwrapped = ball_xyz;
-        }
-        else {
-            let (x, y, ..) = delayed_obs;
-            xyz_unwrapped = Self::local_to_global(Some([x, y, 0.0]), None).0.unwrap();
-        }
-
-        if let Some(rod_states) = rod_tr {
-            pos_rod_unwrapped = rod_states;
-        }
-        else {
-            let (.., pos, rot) = delayed_obs;
-            pos_rod_unwrapped = std::array::from_fn(|i| [pos[i], rot[i]]);
-        }
-
+    pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64)>>) {
         if let Some(v) = G_MJ_VIEWER.get() {
             let mut lock = v.lock().unwrap();
             let scene = lock.user_scn_mut();
-            self.visualizer.render_ball_estimate(scene, xyz_unwrapped);
-            self.visualizer.render_rods_estimates(scene, pos_rod_unwrapped);
+
+            if let Some(unwrapped_ball_xyz) = ball_xyz {
+                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz);
+            }
+
+            if let Some(unwrapped_rot_tr) = rod_tr {
+                self.visualizer.render_rods_estimates(scene, &unwrapped_rot_tr);
+            }
 
             // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
             lock.sync();
@@ -600,38 +583,21 @@ impl FuzbAISimulator {
     /// which can be selected either directly by id (`camera_id`) or indirectly via name (`camera_name`).
     /// Finally, the image can be written to a file (`outfilename`) or else given as a return value.
     pub fn screenshot(
-        &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<[XYType;8]>,
+        &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64)>>,
         camera_id: Option<isize>, camera_name: Option<String>,
         outfilename: Option<String>,
-        show_estimates: bool, show_trace: bool
+        show_trace: bool
     ) -> Option<Vec<u16>> {
-        let delayed_obs = self.delayed_observation(PlayerTeam::RED, None);
         if let Some(r) = &mut self.renderer {
-            let xyz_unwrapped;
-            let pos_rod_unwrapped;
-
-            if let Some(ball_xyz) = ball_xyz {
-                xyz_unwrapped = ball_xyz;
-            }
-            else {
-                let (x, y, ..) = delayed_obs;
-                xyz_unwrapped = Self::local_to_global(Some([x, y, 0.0]), None).0.unwrap();
-            }
-
-            if let Some(rod_states) = rod_tr {
-                pos_rod_unwrapped = rod_states;
-            }
-            else {
-                let (.., pos, rot) = delayed_obs;
-                pos_rod_unwrapped = std::array::from_fn(|i| [pos[i], rot[i]]);
-            }
-
             r.update_scene(&mut self.mj_data, camera_id, camera_name);
             let scene = r.scene_mut();
 
-            if show_estimates {
-                self.visualizer.render_ball_estimate(scene, xyz_unwrapped);
-                self.visualizer.render_rods_estimates(scene, pos_rod_unwrapped);
+            if let Some(unwrapped_ball_xyz) = ball_xyz {
+                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz);
+            }
+
+            if let Some(unwrapped_rod_tr) = rod_tr {
+                self.visualizer.render_rods_estimates(scene, &unwrapped_rod_tr);
             }
 
             if show_trace {

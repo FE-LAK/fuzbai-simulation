@@ -225,3 +225,4 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+simulation/fuzbai_simulator.pyi
