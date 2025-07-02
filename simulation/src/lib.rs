@@ -89,12 +89,14 @@ pub struct SimVisualConfig {
 impl SimVisualConfig {
     #[new]
     pub fn new(
-        trace_length: usize, trace_ball: bool, trace_rod_indices: Vec<usize>,
+        trace_length: usize, trace_ball: bool, trace_rod_indices: Option<Vec<usize>>,
         refresh_steps: usize, screenshot_size: Option<(usize, usize)>
     ) -> Self {
         let mut trace_rod_mask = 0;
-        for idx in trace_rod_indices {
-            trace_rod_mask |= 1 << idx;
+        if let Some(indices) = trace_rod_indices {
+            for idx in indices {
+                trace_rod_mask |= 1 << idx;
+            }
         }
 
         SimVisualConfig {trace_length, trace_ball, trace_rod_mask, refresh_steps, screenshot_size}
@@ -615,7 +617,7 @@ impl FuzbAISimulator {
                 let mut rod_trace_indices = 0;
                 if let Some(indices) = show_rod_trace_indices {
                     for idx in indices {
-                        rod_trace_indices = 1 << idx;
+                        rod_trace_indices |= 1 << idx;
                     }
                 }
 
@@ -801,7 +803,7 @@ impl FuzbAISimulator {
             let trace_state: TraceType = (
                 std::array::from_fn(|idx| xpos[idx]),
                 std::array::from_fn(|idx| rod_trans[idx]),
-                std::array::from_fn(|idx| rod_rot[idx]),
+                std::array::from_fn(|idx| rod_rot[idx] * f64::consts::PI / 32.0),
             );
             self.visualizer.sample_trace(trace_state);
         }

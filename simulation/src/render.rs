@@ -168,27 +168,76 @@ impl Visualizer {
         n_iter -= 1;
         let raw_scene = unsafe{ scene.raw() };
         assert!(raw_scene.ngeom as usize + (n_iter - 1) * TRACE_GEOM_LEN < raw_scene.maxgeom as usize);
-        for (i, (state_prev, state)) in self.trace_buffer.iter().zip(self.trace_buffer.iter().skip(1)).enumerate() {
+        for (i, (state_prev, state)) in self.trace_buffer.iter()
+            .zip(self.trace_buffer.iter().skip(1)).enumerate()
+        {
             // Gradient based on the marker age
             // Newer markers will be closer to TRACE_RGBA_END.
             coeff = i as f32 / n_iter as f32;
             rgba = std::array::from_fn(|idx| TRACE_RGBA_START[idx] + coeff * TRACE_RGBA_DIFF[idx]);
-            
+
             // Render the trace of ball positions
             if ball_trace {
                 unsafe {
-                    mujoco_rs::mujoco_c::mjv_initGeom(raw_scene.geoms.add(raw_scene.ngeom as usize), mjtGeom__mjGEOM_CAPSULE as i32, [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(), rgba.as_ptr());
+                    mujoco_rs::mujoco_c::mjv_initGeom(
+                        raw_scene.geoms.add(raw_scene.ngeom as usize),
+                        mjtGeom__mjGEOM_CAPSULE as i32,
+                        [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(),
+                        rgba.as_ptr()
+                    );
                     // Position and orient the capsule in such way that it connects the previous and current ball position
-                    mujoco_rs::mujoco_c::mjv_connector(raw_scene.geoms.add(raw_scene.ngeom as usize), mjtGeom__mjGEOM_CAPSULE as i32, TRACE_RADIUS, state_prev.0.as_ptr(), state.0.as_ptr());
+                    mujoco_rs::mujoco_c::mjv_connector(
+                        raw_scene.geoms.add(raw_scene.ngeom as usize),
+                        mjtGeom__mjGEOM_CAPSULE as i32,
+                        TRACE_RADIUS, state_prev.0.as_ptr(), state.0.as_ptr()
+                    );
                     raw_scene.ngeom += 1
                 }
             }
 
             // Render rod geoms
-            for (rod_i, (t, r)) in state.1.into_iter().zip(state.2).enumerate() {
+            for (rod_i, (((tp, rp), t), r)) in state_prev.1.into_iter().zip(state_prev.2)
+                .zip(state.1).zip(state.2).enumerate()
+            {
                 if trace_rod_mask & (1 << rod_i) > 0 {
-                    // TODO: Add a capsule-based trace.
-                    // Visualizer::render_rods_estimates(scene, &[(rod_i, t, r)], Some(rgba));
+                    // Draw the trace for the middle player only.
+                    let trace_offset = if ROD_N_PLAYERS[rod_i] % 2 == 0 {
+                        // Take the mean between max and min player position.
+                        (ROD_N_PLAYERS[rod_i] as f64 - 1.0) * ROD_SPACING[rod_i] / 2.0
+                    }
+                    else {
+                        (ROD_N_PLAYERS[rod_i] / 2).min(ROD_N_PLAYERS[rod_i]) as f64 * ROD_SPACING[rod_i]
+                    };
+
+                    let pos0 = [
+                        ROD_POSITIONS[rod_i][0] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * rp.sin(),
+                        ROD_POSITIONS[rod_i][1] + ROD_FIRST_OFFSET[rod_i] + ROD_TRAVELS[rod_i] * (1.0 - tp) +
+                            trace_offset,
+                        ROD_POSITIONS[rod_i][2] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * rp.cos(),
+                    ];
+                    let pos1 = [
+                        ROD_POSITIONS[rod_i][0] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * r.sin(),
+                        ROD_POSITIONS[rod_i][1] + ROD_FIRST_OFFSET[rod_i] + ROD_TRAVELS[rod_i] * (1.0 - t) +
+                            trace_offset,
+                        ROD_POSITIONS[rod_i][2] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * r.cos(),
+                    ];
+
+                    unsafe {
+                        mujoco_rs::mujoco_c::mjv_initGeom(
+                            raw_scene.geoms.add(raw_scene.ngeom as usize),
+                            mjtGeom__mjGEOM_CAPSULE as i32,
+                            [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(),
+                            rgba.as_ptr()
+                        );
+                        // Position and orient the capsule in such way that it connects
+                        // the previous and current ball position
+                        mujoco_rs::mujoco_c::mjv_connector(
+                            raw_scene.geoms.add(raw_scene.ngeom as usize),
+                            mjtGeom__mjGEOM_CAPSULE as i32, TRACE_RADIUS,
+                            pos0.as_ptr(), pos1.as_ptr()
+                        );
+                        raw_scene.ngeom += 1
+                    }
                 }
             }
         }       
