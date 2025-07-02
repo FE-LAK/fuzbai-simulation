@@ -563,11 +563,11 @@ impl FuzbAISimulator {
             let scene = lock.user_scn_mut();
 
             if let Some(unwrapped_ball_xyz) = ball_xyz {
-                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz);
+                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz, None);
             }
 
             if let Some(unwrapped_rot_tr) = rod_tr {
-                self.visualizer.render_rods_estimates(scene, &unwrapped_rot_tr);
+                self.visualizer.render_rods_estimates(scene, &unwrapped_rot_tr, None);
             }
 
             // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
@@ -593,11 +593,11 @@ impl FuzbAISimulator {
             let scene = r.scene_mut();
 
             if let Some(unwrapped_ball_xyz) = ball_xyz {
-                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz);
+                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz, None);
             }
 
             if let Some(unwrapped_rod_tr) = rod_tr {
-                self.visualizer.render_rods_estimates(scene, &unwrapped_rod_tr);
+                self.visualizer.render_rods_estimates(scene, &unwrapped_rod_tr, None);
             }
 
             if show_trace {

@@ -51,7 +51,7 @@ pub(crate) const ROD_ESTIMATE_FRAME_UPPER_OFFSET: f64 = -0.033778597213357395;
 pub(crate) const ROD_ESTIMATE_FRAME_LOWER_OFFSET: f64 = -0.06625961001214105;
 
 /// The color of rod estimates.
-pub(crate) const ROD_ESTIMATE_RGBA: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+pub(crate) const DEFAULT_ROD_ESTIMATE_RGBA: RGBAType = [0.0, 1.0, 0.0, 1.0];
 /// The local frame of the bottom part of the player isn't aligned with the
 /// global frame, but is needs to be rotated 90 degrees. This represents a rotational matrix
 /// for rotation 90 degrees around X axis.
@@ -160,7 +160,7 @@ pub const BALL_MOVING_TIMEOUT_S: f64 = 3.0;
 /// The radius of the ball, in meters.
 pub const BALL_RADIUS_M: f64 = 0.0175;
 /// The color of ball's estimate display.
-pub const BALL_ESTIMATE_RGBA: [f32; 4] = [1.0, 1.0, 0.0, 1.0];
+pub const DEFAULT_BALL_ESTIMATE_RGBA: RGBAType = [1.0, 1.0, 0.0, 1.0];
 
 // Error messages
 pub const E_NOT_ENOUGH_ELEMENTS: &str = "not enough elements";

@@ -185,7 +185,8 @@ impl Visualizer {
 
     /// Renders to `scene` the `position` as the ball's estimate.
     #[inline]
-    pub fn render_ball_estimate(&mut self, scene: &mut MjvScene, position: &XYZType) {
+    pub fn render_ball_estimate(&mut self, scene: &mut MjvScene, position: &XYZType, color: Option<RGBAType>) {
+        let color = color.unwrap_or(DEFAULT_BALL_ESTIMATE_RGBA);
         unsafe {
             let raw_scene = scene.raw();
             assert!(raw_scene.ngeom < raw_scene.maxgeom);
@@ -195,14 +196,14 @@ impl Visualizer {
                 &BALL_RADIUS_M,
                 position.as_ptr(),
                 std::ptr::null(),
-                BALL_ESTIMATE_RGBA.as_ptr()
+                color.as_ptr()
             );
             raw_scene.ngeom += 1;
         }
     }
 
     #[inline]
-    pub fn render_rods_estimates(&mut self, scene: &mut MjvScene, pos_rot: &[(usize, f64, f64)]) {
+    pub fn render_rods_estimates(&mut self, scene: &mut MjvScene, pos_rot: &[(usize, f64, f64)], color: Option<RGBAType>) {
         let raw_scene = unsafe { scene.raw() };
         let mut first_position;
         let mut pos_xyz: [f64; 3];
@@ -213,6 +214,8 @@ impl Visualizer {
         let mut offset_xyz;
         let mut vgeom;
         let mut dy;
+
+        let color = color.unwrap_or(DEFAULT_ROD_ESTIMATE_RGBA);
         for (i, t, r) in pos_rot.into_iter() {
             first_position = ROD_TRAVELS[*i] * (1.0 - t) + ROD_FIRST_OFFSET[*i];
             pos_xyz = ROD_POSITIONS[*i];
@@ -235,7 +238,7 @@ impl Visualizer {
                     mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr());
                     pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
                     mjv_initGeom(vgeom, mjtGeom__mjGEOM_MESH as i32, ptr::null(),
-                                 pos_trans.as_ptr(), mat.as_ptr(), ROD_ESTIMATE_RGBA.as_ptr());
+                                 pos_trans.as_ptr(), mat.as_ptr(), color.as_ptr());
 
                     // According to mujoco/src/engine/engine_vis_visualize.c, actual data id is twice the mesh id...
                     // ! Good thing that this isn't documented anywhere in the MuJoCo docs !.
@@ -255,7 +258,7 @@ impl Visualizer {
                     mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr());
                     pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
                     mjv_initGeom(vgeom, mjtGeom__mjGEOM_MESH as i32, ptr::null(),
-                                 pos_trans.as_ptr(), mat_bottom.as_ptr(), ROD_ESTIMATE_RGBA.as_ptr());                        
+                                 pos_trans.as_ptr(), mat_bottom.as_ptr(), color.as_ptr());                        
                     vgeom.dataid =  ROD_MESH_LOWER_PLAYER_ID * 2;
                     raw_scene.ngeom += 1;
                 }
