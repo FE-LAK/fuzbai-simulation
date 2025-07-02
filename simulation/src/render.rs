@@ -95,7 +95,7 @@ impl Render {
             }
         }
 
-        output.into_iter().map(|x| x as u16).collect()
+        output.iter().map(|x| *x as u16).collect()
     }
 
     pub fn update_scene(&mut self, data: &mut MjData, camera_id: Option<isize>, camera_name: Option<String>) {
@@ -196,7 +196,7 @@ impl Visualizer {
             }
 
             // Render rod geoms
-            for (rod_i, (((tp, rp), t), r)) in state_prev.1.into_iter().zip(state_prev.2)
+            for (rod_i, (((tp, rp), t), r)) in state_prev.1.iter().zip(state_prev.2)
                 .zip(state.1).zip(state.2).enumerate()
             {
                 if trace_rod_mask & (1 << rod_i) > 0 {
@@ -276,7 +276,7 @@ impl Visualizer {
         let mut dy;
 
         let color = color.unwrap_or(DEFAULT_ROD_ESTIMATE_RGBA);
-        for (i, t, r) in pos_rot.into_iter() {
+        for (i, t, r) in pos_rot.iter() {
             first_position = ROD_TRAVELS[*i] * (1.0 - t) + ROD_FIRST_OFFSET[*i];
             pos_xyz = ROD_POSITIONS[*i];
             unsafe {

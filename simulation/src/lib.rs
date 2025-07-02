@@ -701,7 +701,7 @@ impl FuzbAISimulator {
         // Termination (goal scored)
         let contacts = self.mj_data.contacts();
         let mut geom_id;
-        for contact in contacts.into_iter() {
+        for contact in contacts.iter() {
             geom_id = contact.geom2;
 
             // Blue scored a goal
@@ -903,7 +903,7 @@ impl FuzbAISimulator {
     fn update_collisions(&mut self) {
         // Obtain a raw copy here as Rust will not allow us to use the data
         // while we are iterating the contacts (borrow checker). 
-        for (contact_id, contact) in self.mj_data.contacts().into_iter().enumerate() {
+        for (contact_id, contact) in self.mj_data.contacts().iter().enumerate() {
             let geom_id = contact.geom2 as usize;  // geom1 is the ball geom's ID, geom2 is the other geom in contact
             let mut force = [0.0; 6];
             let frame;
