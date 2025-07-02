@@ -135,7 +135,7 @@ unsafe impl Send for Render {}
 
 /// Records and renders trace of XYZ data. Also allows rendering of ball and rod estimates.
 pub struct Visualizer {
-    trace_buffer: VecDeque<XYZType>,
+    trace_buffer: VecDeque<TraceType>,
     trace_length: usize,
 }
 
@@ -145,11 +145,11 @@ impl Visualizer {
     }
 
     #[inline]
-    pub fn sample_trace(&mut self, xpos: XYZType) {
+    pub fn sample_trace(&mut self, positions: TraceType) {
         if self.trace_buffer.len() >= self.trace_length {
             self.trace_buffer.pop_front();
         }
-        self.trace_buffer.push_back(xpos.try_into().unwrap());
+        self.trace_buffer.push_back(positions);
     }
 
     #[inline]
@@ -157,7 +157,7 @@ impl Visualizer {
         self.trace_buffer.clear();
     }
 
-    pub fn render_trace(&mut self, scene: &mut MjvScene) {
+    pub fn render_trace(&mut self, scene: &mut MjvScene, ball_trace: bool, trace_rod_mask: u8) {
         let mut rgba: [f32; 4];
         let mut coeff;
         let mut n_iter = self.trace_buffer.len();
@@ -167,25 +167,36 @@ impl Visualizer {
 
         n_iter -= 1;
         let raw_scene = unsafe{ scene.raw() };
-        assert!(raw_scene.ngeom as usize + n_iter - 1 < raw_scene.maxgeom as usize);
+        assert!(raw_scene.ngeom as usize + (n_iter - 1) * TRACE_GEOM_LEN < raw_scene.maxgeom as usize);
         for (i, (state_prev, state)) in self.trace_buffer.iter().zip(self.trace_buffer.iter().skip(1)).enumerate() {
             // Gradient based on the marker age
             // Newer markers will be closer to TRACE_RGBA_END.
             coeff = i as f32 / n_iter as f32;
             rgba = std::array::from_fn(|idx| TRACE_RGBA_START[idx] + coeff * TRACE_RGBA_DIFF[idx]);
-
-            unsafe {
-                mujoco_rs::mujoco_c::mjv_initGeom(raw_scene.geoms.add(raw_scene.ngeom as usize), mjtGeom__mjGEOM_CAPSULE as i32, [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(), rgba.as_ptr());
-                // Position and orient the capsule in such way that it connects the previous and current ball position
-                mujoco_rs::mujoco_c::mjv_connector(raw_scene.geoms.add(raw_scene.ngeom as usize), mjtGeom__mjGEOM_CAPSULE as i32, TRACE_RADIUS, state_prev.as_ptr(), state.as_ptr());
-                raw_scene.ngeom += 1
+            
+            // Render the trace of ball positions
+            if ball_trace {
+                unsafe {
+                    mujoco_rs::mujoco_c::mjv_initGeom(raw_scene.geoms.add(raw_scene.ngeom as usize), mjtGeom__mjGEOM_CAPSULE as i32, [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(), rgba.as_ptr());
+                    // Position and orient the capsule in such way that it connects the previous and current ball position
+                    mujoco_rs::mujoco_c::mjv_connector(raw_scene.geoms.add(raw_scene.ngeom as usize), mjtGeom__mjGEOM_CAPSULE as i32, TRACE_RADIUS, state_prev.0.as_ptr(), state.0.as_ptr());
+                    raw_scene.ngeom += 1
+                }
             }
-        }
+
+            // Render rod geoms
+            for (rod_i, (t, r)) in state.1.into_iter().zip(state.2).enumerate() {
+                if trace_rod_mask & (1 << rod_i) > 0 {
+                    // TODO: Add a capsule-based trace.
+                    // Visualizer::render_rods_estimates(scene, &[(rod_i, t, r)], Some(rgba));
+                }
+            }
+        }       
     }
 
     /// Renders to `scene` the `position` as the ball's estimate.
     #[inline]
-    pub fn render_ball_estimate(&mut self, scene: &mut MjvScene, position: &XYZType, color: Option<RGBAType>) {
+    pub fn render_ball_estimate(scene: &mut MjvScene, position: &XYZType, color: Option<RGBAType>) {
         let color = color.unwrap_or(DEFAULT_BALL_ESTIMATE_RGBA);
         unsafe {
             let raw_scene = scene.raw();
@@ -203,7 +214,7 @@ impl Visualizer {
     }
 
     #[inline]
-    pub fn render_rods_estimates(&mut self, scene: &mut MjvScene, pos_rot: &[(usize, f64, f64)], color: Option<RGBAType>) {
+    pub fn render_rods_estimates(scene: &mut MjvScene, pos_rot: &[(usize, f64, f64)], color: Option<RGBAType>) {
         let raw_scene = unsafe { scene.raw() };
         let mut first_position;
         let mut pos_xyz: [f64; 3];

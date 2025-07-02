@@ -78,6 +78,8 @@ impl PlayerTeam {
 #[derive(Clone)]
 pub struct SimVisualConfig {
     pub trace_length: usize,
+    pub trace_ball: bool,
+    pub trace_rod_mask: u8,
     pub refresh_steps: usize,
     pub screenshot_size: Option<(usize, usize)>
 }
@@ -86,8 +88,16 @@ pub struct SimVisualConfig {
 #[pymethods]
 impl SimVisualConfig {
     #[new]
-    pub fn new(trace_length: usize, refresh_steps: usize, screenshot_size: Option<(usize, usize)>) -> Self {
-        SimVisualConfig {trace_length, refresh_steps, screenshot_size}
+    pub fn new(
+        trace_length: usize, trace_ball: bool, trace_rod_indices: Vec<usize>,
+        refresh_steps: usize, screenshot_size: Option<(usize, usize)>
+    ) -> Self {
+        let mut trace_rod_mask = 0;
+        for idx in trace_rod_indices {
+            trace_rod_mask |= 1 << idx;
+        }
+
+        SimVisualConfig {trace_length, trace_ball, trace_rod_mask, refresh_steps, screenshot_size}
     }
 }
 
@@ -225,7 +235,7 @@ impl FuzbAISimulator {
             if let None = G_MJ_VIEWER.get() {
                 let v = mujoco_rs::viewer::MjViewer::launch_passive(
                     mj_model, &mut mj_data,
-                    visual_config.trace_length + VIEWER_MAX_STATIC_SCENE_GEOM
+                    VIEWER_MAX_STATIC_SCENE_GEOM + visual_config.trace_length * TRACE_GEOM_LEN
                 );
                 G_MJ_VIEWER.set(Mutex::new(v)).unwrap();
             }
@@ -291,7 +301,7 @@ impl FuzbAISimulator {
         let renderer = if let Some((width, height)) = visual_config.screenshot_size {
             Some(Render::new(
                 mj_model, width, height,
-                SCREENSHOT_MAX_ESTIMATE_SCENE_GEOM + trace_length
+                SCREENSHOT_MAX_ESTIMATE_SCENE_GEOM + trace_length * TRACE_GEOM_LEN
             ))
         } else {
             None
@@ -563,11 +573,11 @@ impl FuzbAISimulator {
             let scene = lock.user_scn_mut();
 
             if let Some(unwrapped_ball_xyz) = ball_xyz {
-                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz, None);
+                Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
             }
 
             if let Some(unwrapped_rot_tr) = rod_tr {
-                self.visualizer.render_rods_estimates(scene, &unwrapped_rot_tr, None);
+                Visualizer::render_rods_estimates(scene, &unwrapped_rot_tr, None);
             }
 
             // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
@@ -586,22 +596,30 @@ impl FuzbAISimulator {
         &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64)>>,
         camera_id: Option<isize>, camera_name: Option<String>,
         outfilename: Option<String>,
-        show_trace: bool
+        show_ball_trace: bool,
+        show_rod_trace_indices: Option<Vec<usize>>
     ) -> Option<Vec<u16>> {
         if let Some(r) = &mut self.renderer {
             r.update_scene(&mut self.mj_data, camera_id, camera_name);
             let scene = r.scene_mut();
 
             if let Some(unwrapped_ball_xyz) = ball_xyz {
-                self.visualizer.render_ball_estimate(scene, &unwrapped_ball_xyz, None);
+                Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
             }
 
             if let Some(unwrapped_rod_tr) = rod_tr {
-                self.visualizer.render_rods_estimates(scene, &unwrapped_rod_tr, None);
+                Visualizer::render_rods_estimates(scene, &unwrapped_rod_tr, None);
             }
 
-            if show_trace {
-                self.visualizer.render_trace(scene);
+            if show_ball_trace {
+                let mut rod_trace_indices = 0;
+                if let Some(indices) = show_rod_trace_indices {
+                    for idx in indices {
+                        rod_trace_indices = 1 << idx;
+                    }
+                }
+
+                self.visualizer.render_trace(scene, show_ball_trace, rod_trace_indices);
             }
 
             let image = r.render();
@@ -779,7 +797,13 @@ impl FuzbAISimulator {
         // to support screenshots outside an active viewer.
         if self.visual_config.trace_length > 0 {
             let xpos = &self.mj_data_joint_ball.qpos[..3];
-            self.visualizer.sample_trace(std::array::from_fn(|idx| xpos[idx]));
+            let (rod_trans, rod_rot) = self.rods_true_state();
+            let trace_state: TraceType = (
+                std::array::from_fn(|idx| xpos[idx]),
+                std::array::from_fn(|idx| rod_trans[idx]),
+                std::array::from_fn(|idx| rod_rot[idx]),
+            );
+            self.visualizer.sample_trace(trace_state);
         }
 
         // Reset the viwer's scene and draw the trace.
@@ -789,7 +813,7 @@ impl FuzbAISimulator {
             unsafe { scene.raw().ngeom = 0 };  // pseude-clear existing geoms
 
             // Draw trace
-            self.visualizer.render_trace(scene);
+            self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
         }
     }
 

@@ -143,6 +143,8 @@ pub const MAX_TRACE_BUFFER_LEN: usize = (10.0 / 0.020) as usize;  // 10 seconds 
 /// number to produce the final number of max scene geoms.
 pub(crate) const VIEWER_MAX_STATIC_SCENE_GEOM: usize = 100;
 pub(crate) const SCREENSHOT_MAX_ESTIMATE_SCENE_GEOM: usize = 125;
+/// Number of geoms in a single timestep of a trace.
+pub(crate) const TRACE_GEOM_LEN: usize = 45;  // 22 players on one side * 2 sides * geoms for each player + 1 ball
 
 /// The position at which to spawn the ball.
 pub const DEFAULT_BALL_POSITION: XYZType = [0.718, 0.65, 0.194];
