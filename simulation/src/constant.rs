@@ -51,7 +51,7 @@ pub(crate) const ROD_ESTIMATE_FRAME_UPPER_OFFSET: f64 = -0.033778597213357395;
 pub(crate) const ROD_ESTIMATE_FRAME_LOWER_OFFSET: f64 = -0.06625961001214105;
 
 /// The color of rod estimates.
-pub(crate) const ROD_ESTIMATE_RGBA: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+pub(crate) const DEFAULT_ROD_ESTIMATE_RGBA: RGBAType = [0.0, 1.0, 0.0, 1.0];
 /// The local frame of the bottom part of the player isn't aligned with the
 /// global frame, but is needs to be rotated 90 degrees. This represents a rotational matrix
 /// for rotation 90 degrees around X axis.
@@ -143,6 +143,8 @@ pub const MAX_TRACE_BUFFER_LEN: usize = (10.0 / 0.020) as usize;  // 10 seconds 
 /// number to produce the final number of max scene geoms.
 pub(crate) const VIEWER_MAX_STATIC_SCENE_GEOM: usize = 100;
 pub(crate) const SCREENSHOT_MAX_ESTIMATE_SCENE_GEOM: usize = 125;
+/// Number of geoms in a single timestep of a trace.
+pub(crate) const TRACE_GEOM_LEN: usize = 9;  // 8 rods + 1 ball
 
 /// The position at which to spawn the ball.
 pub const DEFAULT_BALL_POSITION: XYZType = [0.718, 0.65, 0.194];
@@ -160,7 +162,7 @@ pub const BALL_MOVING_TIMEOUT_S: f64 = 3.0;
 /// The radius of the ball, in meters.
 pub const BALL_RADIUS_M: f64 = 0.0175;
 /// The color of ball's estimate display.
-pub const BALL_ESTIMATE_RGBA: [f32; 4] = [1.0, 1.0, 0.0, 1.0];
+pub const DEFAULT_BALL_ESTIMATE_RGBA: RGBAType = [1.0, 1.0, 0.0, 1.0];
 
 // Error messages
 pub const E_NOT_ENOUGH_ELEMENTS: &str = "not enough elements";
