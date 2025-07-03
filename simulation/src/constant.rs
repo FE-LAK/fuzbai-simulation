@@ -135,7 +135,7 @@ pub const BALL_TRACE_RADIUS: f64 = 0.003;
 /// The color of players on the rod at the newest trace timestamp.
 pub const ROD_TRACE_RGBA_END: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 /// The color of players on the rod at the oldest trace timestamp.
-pub const ROD_TRACE_RGBA_START: [f32; 4] = [1.0, 0.0, 0.0, 0.0];
+pub const ROD_TRACE_RGBA_START: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 pub(crate) const ROD_TRACE_RGBA_DIFF: [f32; 4] = [
     ROD_TRACE_RGBA_END[0] - ROD_TRACE_RGBA_START[0], ROD_TRACE_RGBA_END[1] - ROD_TRACE_RGBA_START[1],
     ROD_TRACE_RGBA_END[2] - ROD_TRACE_RGBA_START[2], ROD_TRACE_RGBA_END[3] - ROD_TRACE_RGBA_START[3]

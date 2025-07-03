@@ -102,7 +102,12 @@ impl Render {
         let model_raw = unsafe { data.model().raw() };
 
         let camera_id = if let Some(name) = camera_name {
-            unsafe { mj_name2id(model_raw, mjtObj__mjOBJ_CAMERA as i32, CString::new(name).unwrap().as_ptr()) as isize }
+            unsafe {
+                mj_name2id(
+                    model_raw, mjtObj__mjOBJ_CAMERA as i32,
+                    CString::new(name).unwrap().as_ptr()
+                ) as isize
+            }
         } else {
             camera_id.unwrap_or(-1)  // free camera
         };
@@ -157,7 +162,7 @@ impl Visualizer {
         self.trace_buffer.clear();
     }
 
-    pub fn render_trace(&mut self, scene: &mut MjvScene, ball_trace: bool, trace_rod_mask: u8) {
+    pub fn render_trace(&mut self, scene: &mut MjvScene, ball_trace: bool, trace_rod_mask: u64) {
         let mut ball_rgba: [f32; 4];
         let mut rod_rgba: [f32; 4];
         let mut coeff;
@@ -182,7 +187,9 @@ impl Visualizer {
 
             // Render the trace of ball positions
             if ball_trace {
-                ball_rgba = std::array::from_fn(|idx| BALL_TRACE_RGBA_START[idx] + coeff * BALL_TRACE_RGBA_DIFF[idx]);
+                ball_rgba = std::array::from_fn(
+                    |idx| BALL_TRACE_RGBA_START[idx] + coeff * BALL_TRACE_RGBA_DIFF[idx]
+                );
                 unsafe {
                     let s = scene.raw();
                     mujoco_rs::mujoco_c::mjv_initGeom(
@@ -191,7 +198,8 @@ impl Visualizer {
                         [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(),
                         ball_rgba.as_ptr()
                     );
-                    // Position and orient the capsule in such way that it connects the previous and current ball position
+                    // Position and orient the capsule in such way that it
+                    // connects the previous and current ball position
                     mujoco_rs::mujoco_c::mjv_connector(
                         s.geoms.add(s.ngeom as usize),
                         mjtGeom__mjGEOM_CAPSULE as i32,
@@ -202,63 +210,27 @@ impl Visualizer {
             }
 
             // Render rod geoms
-            rod_rgba = std::array::from_fn(|idx| ROD_TRACE_RGBA_START[idx] + coeff * ROD_TRACE_RGBA_DIFF[idx]);
-            for (rod_i, (t, r)) in state.1.into_iter().zip(state.2).enumerate()
-            {
-                if trace_rod_mask & (1 << rod_i) > 0 {
-                    // Draw the trace for the middle player only.
-
-                    /* Trace by drawing actual meshes */
-                    Self::render_rods_estimates(scene, &[(rod_i, t, r)], Some(rod_rgba));
-
-
-                    /* Trace via line */
-                    // let trace_offset = if ROD_N_PLAYERS[rod_i] % 2 == 0 {
-                    //     // Take the mean between max and min player position.
-                    //     (ROD_N_PLAYERS[rod_i] as f64 - 1.0) * ROD_SPACING[rod_i] / 2.0
-                    // }
-                    // else {
-                    //     (ROD_N_PLAYERS[rod_i] / 2).min(ROD_N_PLAYERS[rod_i]) as f64 * ROD_SPACING[rod_i]
-                    // };
-
-                    // let pos0 = [
-                    //     ROD_POSITIONS[rod_i][0] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * rp.sin(),
-                    //     ROD_POSITIONS[rod_i][1] + ROD_FIRST_OFFSET[rod_i] + ROD_TRAVELS[rod_i] * (1.0 - tp) +
-                    //         trace_offset,
-                    //     ROD_POSITIONS[rod_i][2] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * rp.cos(),
-                    // ];
-                    // let pos1 = [
-                    //     ROD_POSITIONS[rod_i][0] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * r.sin(),
-                    //     ROD_POSITIONS[rod_i][1] + ROD_FIRST_OFFSET[rod_i] + ROD_TRAVELS[rod_i] * (1.0 - t) +
-                    //         trace_offset,
-                    //     ROD_POSITIONS[rod_i][2] + ROD_ESTIMATE_FRAME_LOWER_OFFSET * r.cos(),
-                    // ];
-
-                    // unsafe {
-                    //     mujoco_rs::mujoco_c::mjv_initGeom(
-                    //         raw_scene.geoms.add(raw_scene.ngeom as usize),
-                    //         mjtGeom__mjGEOM_CAPSULE as i32,
-                    //         [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(),
-                    //         rgba.as_ptr()
-                    //     );
-                    //     // Position and orient the capsule in such way that it connects
-                    //     // the previous and current ball position
-                    //     mujoco_rs::mujoco_c::mjv_connector(
-                    //         raw_scene.geoms.add(raw_scene.ngeom as usize),
-                    //         mjtGeom__mjGEOM_CAPSULE as i32, TRACE_RADIUS,
-                    //         pos0.as_ptr(), pos1.as_ptr()
-                    //     );
-                    //     raw_scene.ngeom += 1
-                    // }
-                }
-            }
+            rod_rgba = std::array::from_fn(|idx|
+                ROD_TRACE_RGBA_START[idx] + coeff * ROD_TRACE_RGBA_DIFF[idx]
+            );
+            Self::render_rods_estimates(
+                scene,                   // Extract the mask indicating which players to draw for the specific rod.
+                state.1.into_iter().zip(state.2).enumerate().map(|(rod_i, (t, r))|
+                    (rod_i, t, r, ((trace_rod_mask >> rod_i * 8) & 0xFF) as u8)
+                ),
+                Some(rod_rgba)
+            );
         }       
     }
 
     /// Renders to `scene` the `position` as the ball's estimate.
-    #[inline]
     pub fn render_ball_estimate(scene: &mut MjvScene, position: &XYZType, color: Option<RGBAType>) {
         let color = color.unwrap_or(DEFAULT_BALL_ESTIMATE_RGBA);
+        let position_global = [
+            (position[0] + 115.0) / 1000.0,
+            (727.0 - position[1]) / 1000.0,
+            position[2] / 1000.0 + Z_FIELD
+        ];
         unsafe {
             let raw_scene = scene.raw();
             assert!(raw_scene.ngeom < raw_scene.maxgeom);
@@ -266,7 +238,7 @@ impl Visualizer {
                 raw_scene.geoms.add(raw_scene.ngeom as usize),
                 mjtGeom__mjGEOM_SPHERE as i32,
                 &BALL_RADIUS_M,
-                position.as_ptr(),
+                position_global.as_ptr(),
                 std::ptr::null(),
                 color.as_ptr()
             );
@@ -274,8 +246,9 @@ impl Visualizer {
         }
     }
 
-    #[inline]
-    pub fn render_rods_estimates(scene: &mut MjvScene, pos_rot: &[(usize, f64, f64)], color: Option<RGBAType>) {
+    pub fn render_rods_estimates<T>(scene: &mut MjvScene, pos_rot: T, color: Option<RGBAType>)
+        where T: IntoIterator<Item=(usize, f64, f64, u8)>
+    {
         let raw_scene = unsafe { scene.raw() };
         let mut first_position;
         let mut pos_xyz: [f64; 3];
@@ -288,19 +261,30 @@ impl Visualizer {
         let mut dy;
 
         let color = color.unwrap_or(DEFAULT_ROD_ESTIMATE_RGBA);
-        for (i, t, r) in pos_rot.iter() {
+        for (i, t, r, player_mask) in pos_rot {
             assert!(raw_scene.ngeom < raw_scene.maxgeom);
 
-            first_position = ROD_TRAVELS[*i] * (1.0 - t) + ROD_FIRST_OFFSET[*i];
-            pos_xyz = ROD_POSITIONS[*i];
+            first_position = ROD_TRAVELS[i] * (1.0 - t) + ROD_FIRST_OFFSET[i];
+            pos_xyz = ROD_POSITIONS[i];
             unsafe {
-                mju_axisAngle2Quat(quat.as_mut_ptr(), [0.0, 1.0, 0.0].as_ptr(), r * f64::consts::PI / 32.0);
+                mju_axisAngle2Quat(
+                    quat.as_mut_ptr(),
+                    [0.0, 1.0, 0.0].as_ptr(),
+                    r * f64::consts::PI / 32.0
+                );
                 mju_quat2Mat(mat.as_mut_ptr(), quat.as_ptr());
             }
 
-            for p in 0..ROD_N_PLAYERS[*i] {
+            for p in 0..ROD_N_PLAYERS[i] {
+                // P'th player is not enabled for drawing.
+                // p is subtracted from the maximum index because player_mask is in
+                // red's local coordinate system.
+                if (1 << (ROD_N_PLAYERS[i] - p - 1)) & player_mask == 0 {
+                    continue;
+                }
+
                 unsafe {
-                    dy = first_position + ROD_SPACING[*i] * p as f64;
+                    dy = first_position + ROD_SPACING[i] * p as f64;
                     pos_trans = pos_xyz;
                     pos_trans[1] += dy;
                     vgeom = raw_scene.geoms.add(raw_scene.ngeom as usize).as_mut().unwrap();
@@ -326,7 +310,11 @@ impl Visualizer {
                     mat_bottom = [0.0; 9];
 
                     // Rotate the bottom part 90 degrees around x first, then apply the joint rotation
-                    mju_mulMatMat(mat_bottom.as_mut_ptr(), mat.as_ptr(), ROD_BOTTOM_PRE_ROTATION_MAT.as_ptr(), 3, 3, 3);
+                    mju_mulMatMat(
+                        mat_bottom.as_mut_ptr(),
+                        mat.as_ptr(), ROD_BOTTOM_PRE_ROTATION_MAT.as_ptr(),
+                        3, 3, 3
+                    );
 
                     offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_LOWER_OFFSET];
                     mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr());
