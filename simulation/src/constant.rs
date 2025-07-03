@@ -121,19 +121,25 @@ pub const RED_INDICES: [usize; 4] = [0, 1, 3, 5];
 pub const BLUE_INDICES: [usize; 4] = [7, 6, 4, 2];
                                      
 
-/// Trace RGBA color displaying the newest timestamp. Other timestamps
-/// will be displayed in the form of a continuous gradient between 
-/// ``TRACE_RGBA_START`` and ``TRACE_RGBA_END``.
-pub const TRACE_RGBA_END: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
-/// Trace RGBA color displaying the oldest timestamp.
-pub const TRACE_RGBA_START: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
-pub(crate) const TRACE_RGBA_DIFF: [f32; 4] = [
-    TRACE_RGBA_END[0] - TRACE_RGBA_START[0], TRACE_RGBA_END[1] - TRACE_RGBA_START[1],
-    TRACE_RGBA_END[2] - TRACE_RGBA_START[2], TRACE_RGBA_END[3] - TRACE_RGBA_START[3]
+/// The color of the ball's trace at the newest trace timestamp.
+pub const BALL_TRACE_RGBA_END: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+/// The color of the ball's trace at the oldest trace timestamp.
+pub const BALL_TRACE_RGBA_START: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+pub(crate) const BALL_TRACE_RGBA_DIFF: [f32; 4] = [
+    BALL_TRACE_RGBA_END[0] - BALL_TRACE_RGBA_START[0], BALL_TRACE_RGBA_END[1] - BALL_TRACE_RGBA_START[1],
+    BALL_TRACE_RGBA_END[2] - BALL_TRACE_RGBA_START[2], BALL_TRACE_RGBA_END[3] - BALL_TRACE_RGBA_START[3]
 ];
 /// The (capsule's) radius of the trace.
-pub const TRACE_RADIUS: f64 = 0.003;
-/// Maximum time the trace can be shown for.
+pub const BALL_TRACE_RADIUS: f64 = 0.003;
+
+/// The color of players on the rod at the newest trace timestamp.
+pub const ROD_TRACE_RGBA_END: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+/// The color of players on the rod at the oldest trace timestamp.
+pub const ROD_TRACE_RGBA_START: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+pub(crate) const ROD_TRACE_RGBA_DIFF: [f32; 4] = [
+    ROD_TRACE_RGBA_END[0] - ROD_TRACE_RGBA_START[0], ROD_TRACE_RGBA_END[1] - ROD_TRACE_RGBA_START[1],
+    ROD_TRACE_RGBA_END[2] - ROD_TRACE_RGBA_START[2], ROD_TRACE_RGBA_END[3] - ROD_TRACE_RGBA_START[3]
+];
 
 /// Maximum t race length in units of high-level ([`LOW_TIMESTEP`] * [`FuzbAISimulator::internal_step_factor`]) steps.
 pub const MAX_TRACE_BUFFER_LEN: usize = (10.0 / 0.020) as usize;  // 10 seconds / 20 ms
@@ -144,7 +150,7 @@ pub const MAX_TRACE_BUFFER_LEN: usize = (10.0 / 0.020) as usize;  // 10 seconds 
 pub(crate) const VIEWER_MAX_STATIC_SCENE_GEOM: usize = 100;
 pub(crate) const SCREENSHOT_MAX_ESTIMATE_SCENE_GEOM: usize = 125;
 /// Number of geoms in a single timestep of a trace.
-pub(crate) const TRACE_GEOM_LEN: usize = 9;  // 8 rods + 1 ball
+pub(crate) const TRACE_GEOM_LEN: usize = 45;  // 11 players * 2 sides * 2 geoms + 1 ball
 
 /// The position at which to spawn the ball.
 pub const DEFAULT_BALL_POSITION: XYZType = [0.718, 0.65, 0.194];

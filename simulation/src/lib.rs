@@ -76,30 +76,35 @@ impl PlayerTeam {
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(module = "fuzbai_simulator")]
 #[derive(Clone)]
-pub struct SimVisualConfig {
+pub struct VisualConfig {
     pub trace_length: usize,
     pub trace_ball: bool,
-    pub trace_rod_mask: u8,
+    pub trace_rod_mask: u64,
     pub refresh_steps: usize,
     pub screenshot_size: Option<(usize, usize)>
 }
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
-impl SimVisualConfig {
+impl VisualConfig {
     #[new]
     pub fn new(
-        trace_length: usize, trace_ball: bool, trace_rod_indices: Option<Vec<usize>>,
+        trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
         refresh_steps: usize, screenshot_size: Option<(usize, usize)>
     ) -> Self {
-        let mut trace_rod_mask = 0;
-        if let Some(indices) = trace_rod_indices {
-            for idx in indices {
-                trace_rod_mask |= 1 << idx;
-            }
-        }
+        VisualConfig {trace_length, trace_ball, trace_rod_mask, refresh_steps, screenshot_size}
+    }
 
-        SimVisualConfig {trace_length, trace_ball, trace_rod_mask, refresh_steps, screenshot_size}
+    /// Creates the mask needed for [`SimVisualConfig.new`].
+    /// To visualize multiple rods use the OR operator:
+    /// `player_mask(0, vec![0]) | player_mask(2, vec![0, 2])`.
+    #[staticmethod]
+    pub fn player_mask(rod_index: usize, player_indices: Vec<usize>) -> u64 {
+        let mut mask = 0;
+        for index in player_indices {
+            mask |= 1 << index;
+        }
+        mask << (rod_index * 8)
     }
 }
 
@@ -130,7 +135,7 @@ pub struct FuzbAISimulator {
     internal_step_factor: usize,
     sample_steps: usize,
     simulated_delay_s: f64,
-    visual_config: SimVisualConfig,
+    visual_config: VisualConfig,
 
     // State data
 
@@ -217,7 +222,7 @@ impl FuzbAISimulator {
         realtime: bool,
         simulated_delay_s: f64,
         model_path: Option<&str>,
-        visual_config: SimVisualConfig,
+        visual_config: VisualConfig,
     ) -> Self {
         assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larget than {MAX_DELAY_S}");
         assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
@@ -522,14 +527,19 @@ impl FuzbAISimulator {
 
     /// Servers the ball to a given `position`.
     pub fn serve_ball(&mut self, position: Option<XYZType>) {
-        let position = position.unwrap_or(DEFAULT_BALL_POSITION);
+        let position = if let Some(xyz) = position {
+            Self::local_to_global_position(xyz)
+        }
+        else {
+            DEFAULT_BALL_POSITION
+        };
         self.mj_data_joint_ball.qpos[..3].copy_from_slice(&position);
         self.mj_data_joint_ball.qpos[3..].copy_from_slice(&[1.0, 0.0, 0.0, 0.0]); // 0 rotation
     }
 
     pub fn nudge_ball(&mut self, velocity: Option<XYZType>) {
         if let Some(v) = velocity {
-            self.mj_data_joint_ball.qvel[..3].copy_from_slice(&v);
+            self.mj_data_joint_ball.qvel[..3].copy_from_slice(&Self::local_to_global_velocity(v));
         }
         else {
             let mut rng = rand::rng();
@@ -569,7 +579,7 @@ impl FuzbAISimulator {
     /// The ``rod_tr`` parameter is an array of ``[translation, rotation]``,
     /// where the translation is in normalized units [0..1] and the rotation is in range of
     /// [-64, 64], representing an entire circle (360 deg) in any direction.
-    pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64)>>) {
+    pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
         if let Some(v) = G_MJ_VIEWER.get() {
             let mut lock = v.lock().unwrap();
             let scene = lock.user_scn_mut();
@@ -579,7 +589,7 @@ impl FuzbAISimulator {
             }
 
             if let Some(unwrapped_rot_tr) = rod_tr {
-                Visualizer::render_rods_estimates(scene, &unwrapped_rot_tr, None);
+                Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
             }
 
             // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
@@ -595,11 +605,9 @@ impl FuzbAISimulator {
     /// which can be selected either directly by id (`camera_id`) or indirectly via name (`camera_name`).
     /// Finally, the image can be written to a file (`outfilename`) or else given as a return value.
     pub fn screenshot(
-        &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64)>>,
+        &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>,
         camera_id: Option<isize>, camera_name: Option<String>,
         outfilename: Option<String>,
-        show_ball_trace: bool,
-        show_rod_trace_indices: Option<Vec<usize>>
     ) -> Option<Vec<u16>> {
         if let Some(r) = &mut self.renderer {
             r.update_scene(&mut self.mj_data, camera_id, camera_name);
@@ -610,20 +618,14 @@ impl FuzbAISimulator {
             }
 
             if let Some(unwrapped_rod_tr) = rod_tr {
-                Visualizer::render_rods_estimates(scene, &unwrapped_rod_tr, None);
+                Visualizer::render_rods_estimates(
+                    scene,
+                    unwrapped_rod_tr,
+                    None
+                );
             }
 
-            if show_ball_trace {
-                let mut rod_trace_indices = 0;
-                if let Some(indices) = show_rod_trace_indices {
-                    for idx in indices {
-                        rod_trace_indices |= 1 << idx;
-                    }
-                }
-
-                self.visualizer.render_trace(scene, show_ball_trace, rod_trace_indices);
-            }
-
+            self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
             let image = r.render();
             if let Some(name) = outfilename {
                 let image_i8: Vec<_> = image.iter().map(|x| *x as u8).collect();
@@ -736,6 +738,18 @@ impl FuzbAISimulator {
     }
 
     /* Class-bound methods */
+    #[staticmethod]
+    #[inline]
+    pub fn local_to_global_position(position: XYZType) -> XYZType {
+        [(position[0] + 115.0) / 1000.0, (727.0 - position[1]) / 1000.0, position[2] / 1000.0 + Z_FIELD]
+    }
+
+    #[staticmethod]
+    #[inline]
+    pub fn local_to_global_velocity(velocity: XYZType) -> XYZType {
+        [velocity[0], -velocity[1], velocity[2]]
+    }
+
     /// Transforms local coordinates (from the read team) into Mujoco's global coordinate system.
     /// Method assumes that `position` is in mm, whilst the output is in m (as expected by MuJoCo).
     /// The `velocity` is in m/s and so is the output.
@@ -744,12 +758,12 @@ impl FuzbAISimulator {
     pub fn local_to_global(mut position: Option<XYZType>, mut velocity: Option<XYZType>) -> (Option<XYZType>, Option<XYZType>) {
         // Transform position
         if let Some(p) = position {
-            position = Some([(p[0] + 115.0) / 1000.0, (727.0 - p[1]) / 1000.0, p[2] / 1000.0 + Z_FIELD]);
+            position = Some(Self::local_to_global_position(p))
         }
 
         // Transform velocity
         if let Some(v) = velocity {
-            velocity = Some([v[0], -v[1], v[2]]);
+            velocity = Some(Self::local_to_global_velocity(v));
         }
         (position, velocity)
     }
@@ -803,7 +817,7 @@ impl FuzbAISimulator {
             let trace_state: TraceType = (
                 std::array::from_fn(|idx| xpos[idx]),
                 std::array::from_fn(|idx| rod_trans[idx]),
-                std::array::from_fn(|idx| rod_rot[idx] * f64::consts::PI / 32.0),
+                std::array::from_fn(|idx| rod_rot[idx]),
             );
             self.visualizer.sample_trace(trace_state);
         }
@@ -949,7 +963,7 @@ define_stub_info_gatherer!(stub_info);
 fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FuzbAISimulator>()?;
     m.add_class::<PlayerTeam>()?;
-    m.add_class::<SimVisualConfig>()?;
+    m.add_class::<VisualConfig>()?;
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
     Ok(())
