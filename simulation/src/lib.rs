@@ -803,7 +803,7 @@ impl FuzbAISimulator {
             let trace_state: TraceType = (
                 std::array::from_fn(|idx| xpos[idx]),
                 std::array::from_fn(|idx| rod_trans[idx]),
-                std::array::from_fn(|idx| rod_rot[idx] * f64::consts::PI / 32.0),
+                std::array::from_fn(|idx| rod_rot[idx]),
             );
             self.visualizer.sample_trace(trace_state);
         }
