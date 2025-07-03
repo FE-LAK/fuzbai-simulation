@@ -95,7 +95,7 @@ impl VisualConfig {
         VisualConfig {trace_length, trace_ball, trace_rod_mask, refresh_steps, screenshot_size}
     }
 
-    /// Creates the mask needed for [`SimVisualConfig.new`].
+    /// Creates the mask needed for [`VisualConfig.new`].
     /// To visualize multiple rods use the OR operator:
     /// `player_mask(0, vec![0]) | player_mask(2, vec![0, 2])`.
     #[staticmethod]
@@ -238,6 +238,11 @@ impl FuzbAISimulator {
         });
 
         let mut mj_data = MjData::new(mj_model);
+        // Make sure we have forward kinematics calculated before doing any stepping (in case reset will not be called).
+        // In the step_simulation method we call step2 first and step1 after to prevent non-state attributes of MjData
+        // from lagging behind one low-level step.
+        mj_data.step1();
+
         if realtime {
             if let None = G_MJ_VIEWER.get() {
                 let v = mujoco_rs::viewer::MjViewer::launch_passive(
@@ -322,7 +327,7 @@ impl FuzbAISimulator {
             delayed_memory: VecDeque::new(),
             ball_last_moving_t: 0.0,
             external_team_red: true, external_team_blue: false,
-            term: false, trunc: false, current_time: 0.0, current_ll_step: 0,
+            term: true, trunc: false, current_time: 0.0, current_ll_step: 0,
             collision_forces: [[0.0, 0.0]; 8], collision_indices: [-1; 8],
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
@@ -657,6 +662,7 @@ impl FuzbAISimulator {
         self.mj_data_joint_ball.reset();
         self.serve_ball(None);
         self.nudge_ball(None);
+        self.mj_data.step1();
     }
 
     pub fn step_simulation(&mut self) {
@@ -665,12 +671,12 @@ impl FuzbAISimulator {
         // low-level steps
         for _ in 0..self.internal_step_factor {
             let t_start = Instant::now();
-            self.mj_data.step1();  // calculate the dynamics equations
             // Position tracking -> torque
             self.trans_motor_ctrl.step();
             self.rot_motor_ctrl.step();
             // self.trans_motor_ctrl.check_reference();  // force-stop when reference is set close to the current position
-            self.mj_data.step2();  // integrate in time and kinematics
+            self.mj_data.step2();
+            self.mj_data.step1();
 
             self.current_ll_step += 1;
             self.current_time += LOW_TIMESTEP;
