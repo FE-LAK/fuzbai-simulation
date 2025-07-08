@@ -4,6 +4,7 @@
 
 # Configuration
 CWD=$(pwd)
+BUILD_CWD=/tmpfs/build/
 CMAKE_ARGS=(
     # -DCMAKE_C_COMPILER:STRING=clang-14
     # -DCMAKE_CXX_COMPILER:STRING=clang++-14
@@ -15,12 +16,19 @@ CMAKE_ARGS=(
     -DCMAKE_EXE_LINKER_FLAGS:STRING=-Wl,--no-as-needed
 )
 
+
+# Build inside the container's filesystem to prevent
+# overhead of communicating between Docker and host.
+rm $BUILD_CWD -rf
+mkdir $BUILD_CWD -p
+cp $CWD/* $BUILD_CWD -r
+cd $BUILD_CWD
+
 # Build MuJoCo's libs
 cd mujoco_rust/mujoco/
 cmake -B build -S . "${CMAKE_ARGS[@]}"
 cmake --build build --parallel --target libsimulate --config=Release
-
-cd $CWD
+cd $BUILD_CWD
 
 # Build the model
 cargo run --release --bin mujoco-model-compiler
@@ -29,9 +37,13 @@ cargo run --release --bin mujoco-model-compiler
 cd simulation/
 cargo run --release --features stub-gen --bin stub_gen
 maturin build -r
-cd $CWD
+cd $BUILD_CWD
 
 # Build built-in agent
 cd fuzbai-agent/
 maturin build -r
+
+# Copy back built files
 cd $CWD
+cp $BUILD_CWD/mujoco_rust/mujoco/build/ mujoco_rust/mujoco/build/ -r
+cp $BUILD_CWD/target/* ./target/ -r
