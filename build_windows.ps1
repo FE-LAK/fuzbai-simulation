@@ -42,4 +42,5 @@ maturin build -r
 # Copy back built files
 Set-Location $CWD
 Copy-Item "$BUILD_CWD\mujoco_rust\mujoco\build\*" -Destination "mujoco_rust\mujoco\build\" -Recurse -Force
+New-Item -ItemType Directory -Path .\target | Out-Null
 Copy-Item "$BUILD_CWD\target\*" -Destination "target\" -Recurse -Force

@@ -46,4 +46,5 @@ maturin build -r
 # Copy back built files
 cd $CWD
 cp $BUILD_CWD/mujoco_rust/mujoco/build/ mujoco_rust/mujoco/build/ -r
+mkdir ./target/
 cp $BUILD_CWD/target/* ./target/ -r
