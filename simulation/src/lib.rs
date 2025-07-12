@@ -194,7 +194,7 @@ pub struct FuzbAISimulator {
     mj_red_goal_geom_ids: [i32; 2],
     mj_blue_goal_geom_ids: [i32; 2],
 
-    collision_forces: [[f64; 2]; 8],
+    collision_forces: [[f64; 3]; 8],
     collision_indices: [isize; 8],
 
     /* Player control */
@@ -328,7 +328,7 @@ impl FuzbAISimulator {
             ball_last_moving_t: 0.0,
             external_team_red: true, external_team_blue: false,
             term: true, trunc: false, current_time: 0.0, current_ll_step: 0,
-            collision_forces: [[0.0, 0.0]; 8], collision_indices: [-1; 8],
+            collision_forces: [[0.0, 0.0, 0.0]; 8], collision_indices: [-1; 8],
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
             mj_data_act_ball_damp_x, mj_data_act_ball_damp_y,
@@ -358,7 +358,7 @@ impl FuzbAISimulator {
     #[getter]
     #[inline]
     /// Returns the collision forces (relative to the red team).
-    pub fn collision_forces(&self) -> [[f64; 2]; 8] {
+    pub fn collision_forces(&self) -> [[f64; 3]; 8] {
         self.collision_forces
     }
 
@@ -912,7 +912,7 @@ impl FuzbAISimulator {
 
     /// Resets the saved collision forces to [0.0, 0.0] and resets indices to -1.
     fn clear_collisions(&mut self) {
-        self.collision_forces.fill([0.0, 0.0]);
+        self.collision_forces.fill([0.0, 0.0, 0.0]);
         self.collision_indices.fill(-1);
     }
 
@@ -929,6 +929,7 @@ impl FuzbAISimulator {
             let frame;
             let fx;
             let fy;
+            let fz;
             let current_max;
             if geom_id >= GEOM_TO_ROD_MAPPING.len() {
                 continue;
@@ -949,9 +950,10 @@ impl FuzbAISimulator {
             frame = contact.frame;
             fx = -frame[0] * force[0];
             fy = -frame[1] * force[0];
+            fz = -frame[2] * force[0];
             current_max = &self.collision_forces[rod_id as usize];  // current max force
             if f64::sqrt(fx.powi(2) + fy.powi(2)) > f64::sqrt(current_max[0].powi(2) + current_max[1].powi(2)) {
-                self.collision_forces[rod_id as usize] = [fx, fy];
+                self.collision_forces[rod_id as usize] = [fx, fy, fz];
                 self.collision_indices[rod_id as usize] = geom_id as isize;
             }
             break
