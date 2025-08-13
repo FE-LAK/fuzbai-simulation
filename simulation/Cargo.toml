@@ -12,9 +12,14 @@ pyo3 = "0.24.2"
 mujoco_rs = {path = "../mujoco_rust/"}
 agent_rust = {path = "../fuzbai-agent/"}
 rand = "0.9.1"
-pyo3-stub-gen = {version = "0.8.2", optional = true }
 glfw = "0.59.0"
 
-[features]
-# Only compile the stub-gen when generating stub files
-stub-gen = ["pyo3-stub-gen"]
+[build-dependencies]
+mujoco_rs = {path = "../mujoco_rust/"}
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+strip = "symbols"

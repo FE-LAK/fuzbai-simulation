@@ -228,3 +228,5 @@ cython_debug/
 
 # Stub files
 *.pyi
+
+Cargo.lock

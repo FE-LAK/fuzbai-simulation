@@ -4,6 +4,7 @@
 
 # Configuration
 CWD=$(pwd)
+TARGET_WHEELS=target/wheels/
 CMAKE_ARGS=(
     # -DCMAKE_C_COMPILER:STRING=clang-14
     # -DCMAKE_CXX_COMPILER:STRING=clang++-14
@@ -22,12 +23,8 @@ cmake -B build -S . "${CMAKE_ARGS[@]}"
 cmake --build build --parallel --target libsimulate --config=Release
 cd $CWD
 
-# Build the model
-cargo run --release --bin mujoco-model-compiler
-
 # Build the simulator
 cd simulation/
-cargo run --release --features stub-gen --bin stub_gen
 maturin build -r
 cd $CWD
 
@@ -37,3 +34,6 @@ maturin build -r
 
 # Copy back built files
 cd $CWD
+mkdir -p $TARGET_WHEELS
+cp simulation/target/wheels/* $TARGET_WHEELS
+cp fuzbai-agent/target/wheels/* $TARGET_WHEELS

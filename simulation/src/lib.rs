@@ -11,9 +11,6 @@ use std::time::Instant;
 use std::ffi::CString;
 use core::f64;
 
-#[cfg(feature = "stub-gen")]
-use pyo3_stub_gen::{define_stub_info_gatherer, derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods}};
-
 use rand::distr::{Distribution, Uniform};
 use pyo3::prelude::*;
 
@@ -29,11 +26,10 @@ pub mod types;
 
 
 /// Compiled MuJoCo model. Useful when compiling as a Python wheel or a Rust crate.
-const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
+const MJB_MODEL_DATA: &[u8] = b"";//include_bytes!("./miza.mjb");
 
 
 /* Enum definitions */
-#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[pyclass(eq, eq_int, module = "fuzbai_simulator")]
 #[derive(PartialEq, Clone)]
 #[repr(usize)] 
@@ -73,7 +69,6 @@ impl PlayerTeam {
 /// * `refresh_steps` - How many low-level steps before re-rendering the viewer.
 /// * `screenshot_size` - Tuple of (width, height) for the offscreen renderer (for screenshots).
 ///                       Set to None if no `.screenshot` calls are required.
-#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(module = "fuzbai_simulator")]
 #[derive(Clone)]
 pub struct VisualConfig {
@@ -84,7 +79,6 @@ pub struct VisualConfig {
     pub screenshot_size: Option<(usize, usize)>
 }
 
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl VisualConfig {
     #[new]
@@ -128,7 +122,6 @@ pub static G_MJ_VIEWER: OnceLock<Mutex<Box<MjViewer>>> = OnceLock::new();
 /// it passes the checks. Several bypasses were made for performance reasons as it is not meant
 /// to be shared between threads. However, multiple [`FuzbAISimulator`] instances can be made
 /// safely in individual threads or within the same thread.
-#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(module = "fuzbai_simulator")]
 pub struct FuzbAISimulator {
     // Parameter data
@@ -211,7 +204,6 @@ pub struct FuzbAISimulator {
 }
 
 
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl FuzbAISimulator {
     /// Constructs a new [`FuzbAISimulator`] instance.
@@ -960,11 +952,6 @@ impl FuzbAISimulator {
         }
     }
 }
-
-
-#[cfg(feature = "stub-gen")]
-define_stub_info_gatherer!(stub_info);
-
 
 #[pymodule]
 /// Python module definition
