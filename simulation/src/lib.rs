@@ -26,7 +26,7 @@ pub mod types;
 
 
 /// Compiled MuJoCo model. Useful when compiling as a Python wheel or a Rust crate.
-const MJB_MODEL_DATA: &[u8] = b"";//include_bytes!("./miza.mjb");
+const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
 
 
 /* Enum definitions */
