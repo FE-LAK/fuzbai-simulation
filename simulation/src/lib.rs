@@ -471,7 +471,7 @@ impl FuzbAISimulator {
         // rotation
         if let Some(rotations) = rotations {
             for i in 0..8 {
-                pos = rotations[i] * std::f64::consts::PI;
+                pos = rotations[i] * 2.0 * std::f64::consts::PI;
                 self.rot_motor_ctrl.set_qpos(i, pos);
                 self.rot_motor_ctrl.force_stop(i);
             }
