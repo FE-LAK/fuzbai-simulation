@@ -390,15 +390,19 @@ impl FuzbAISimulator {
         (1000.0 * x - 115.0, 727.0 - 1000.0 * y, 1000.0 * z, vx, -vy, vz)
     }
 
-    pub fn rods_true_state(&self) -> ([f64; 8], [f64; 8]) {
+    pub fn rods_true_state(&self) -> ([f64; 8], [f64; 8], [f64; 8], [f64; 8]) {
         let mut rod_trans = [0.0; 8];
         let mut rod_rot = [0.0; 8];
+        let mut rod_trans_vel = [0.0; 8];
+        let mut rod_rot_vel = [0.0; 8];
         for i in 0..8 {
             rod_trans[i] = 1.0 - self.trans_motor_ctrl.qpos(i) / ROD_TRAVELS[i];
+            rod_trans_vel[i] = -self.trans_motor_ctrl.qvel(i);
             rod_rot[i] = self.rot_motor_ctrl.qpos(i) / std::f64::consts::PI * 32.0;
+            rod_rot_vel[i] = self.rot_motor_ctrl.qvel(i);
         }
 
-        (rod_trans, rod_rot)
+        (rod_trans, rod_rot, rod_trans_vel, rod_rot_vel)
     }
 
     /// Returns the observation of the simulation.
@@ -811,7 +815,7 @@ impl FuzbAISimulator {
         // to support screenshots outside an active viewer.
         if self.visual_config.trace_length > 0 {
             let xpos = &self.mj_data_joint_ball.qpos[..3];
-            let (rod_trans, rod_rot) = self.rods_true_state();
+            let (rod_trans, rod_rot, ..) = self.rods_true_state();
             let trace_state: TraceType = (
                 std::array::from_fn(|idx| xpos[idx]),
                 std::array::from_fn(|idx| rod_trans[idx]),
@@ -886,7 +890,7 @@ impl FuzbAISimulator {
     #[inline]
     fn observation_red(&self) -> ObservationType {
         let (mut ball_x, mut ball_y, _, mut ball_vx, mut ball_vy, _) = self.ball_true_state();
-        let (mut rod_positions, mut rod_rotations) = self.rods_true_state();
+        let (mut rod_positions, mut rod_rotations, ..) = self.rods_true_state();
 
         let dist = Uniform::new(0.0, 1.0).unwrap();
         let mut rng = rand::rng();
