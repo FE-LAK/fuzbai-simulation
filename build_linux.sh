@@ -21,16 +21,20 @@ CMAKE_ARGS=(
 cd mujoco_rust/mujoco/
 cmake -B build -S . "${CMAKE_ARGS[@]}"
 cmake --build build --parallel --target libsimulate --config=Release
+sync
 cd $CWD
+
 
 # Build the simulator
 cd simulation/
 maturin build -r
+sync
 cd $CWD
 
 # Build built-in agent
 cd fuzbai-agent/
 maturin build -r
+sync
 
 # Copy back built files
 cd $CWD
