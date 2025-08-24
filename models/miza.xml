@@ -99,6 +99,12 @@
         <!-- Blue front camera - demonstrational purposes -->
         <camera name="cam_blue_front" pos="1.5 0.376 0.911" xyaxes="0.000 1.000 0.000 -1.5 0.000 1"/>
 
+        <!-- Blue side-front camera - demonstrational purposes of attacker -->
+        <camera name="cam_blue_side_front" pos="1.341 0.701 0.584" xyaxes="-0.793 0.609 0.000 -0.430 -0.561 0.707"/>
+
+        <!-- red side-front camera - demonstrational purposes of goalkeeper and defense -->
+        <camera name="cam_red_side_front" pos="0.604 0.892 0.682" xyaxes="-0.996 0.087 -0.000 -0.064 -0.734 0.676"/>
+
         <!-- Top camera - competition visualization -->
         <camera name="cam_top" pos="0.713 -0.056 2.043" xyaxes="1.000 0 0.000 0.000 1.000 0.225"/>
 
