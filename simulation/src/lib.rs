@@ -5,8 +5,9 @@ use mujoco_rs::lodepng_c::*;
 use mujoco_rs::prelude::*;
 use mujoco_rs;
 
-use std::sync::{OnceLock, Mutex};
 use std::collections::VecDeque;
+use std::cell::RefCell;
+use std::sync::OnceLock;
 use std::time::Instant;
 use std::ffi::CString;
 use core::f64;
@@ -110,10 +111,13 @@ impl VisualConfig {
 /// prohibition of Rust's lifetimes.
 pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
 
-/// Multiple viewers are not allowed (unless in a different process).
-/// This is a protection mechanism from accidentally launching multiple realtime
-/// simulations.
-pub static G_MJ_VIEWER: OnceLock<Mutex<MjViewer>> = OnceLock::new();
+
+thread_local! {
+    /// Multiple viewers are not allowed (unless in a different process).
+    /// This is a protection mechanism from accidentally launching multiple realtime
+    /// simulations.
+    pub static G_MJ_VIEWER: RefCell<Option<MjViewer>> = RefCell::new(None);
+}
 
 /// High level simulation wrapping the MuJoCo physical
 /// simulation of the table football.
@@ -236,16 +240,19 @@ impl FuzbAISimulator {
         mj_data.step1();
 
         if realtime {
-            if let None = G_MJ_VIEWER.get() {
-                let v = mujoco_rs::viewer::MjViewer::launch_passive(
-                    mj_model, &mut mj_data,
-                    VIEWER_MAX_STATIC_SCENE_GEOM + visual_config.trace_length * TRACE_GEOM_LEN
-                );
-                G_MJ_VIEWER.set(Mutex::new(v)).unwrap();
-            }
-            else {
-                panic!("multiple realtime (with-rendering) simulations requested!")
-            }
+            G_MJ_VIEWER.with(|slot| {
+                let mut borrow = slot.borrow_mut();
+                if borrow.is_none() {
+                    let v = mujoco_rs::viewer::MjViewer::launch_passive(
+                        mj_model, &mut mj_data,
+                        VIEWER_MAX_STATIC_SCENE_GEOM + visual_config.trace_length * TRACE_GEOM_LEN
+                    );
+                        *borrow = Some(v);
+                    }
+                else {
+                    panic!("multiple realtime (with-rendering) simulations requested!")
+                }
+            });
         }
 
         // Create views to MjData
@@ -373,12 +380,12 @@ impl FuzbAISimulator {
     /// Checks if the viewier is still running. If the viewer is not running or has never been
     /// created, [`false`] is returned.
     pub fn viewer_running(&self) -> bool {
-        if let Some(v) = G_MJ_VIEWER.get() {
-            if let Ok(lock) = v.lock() {
-                return lock.running();
+        G_MJ_VIEWER.with_borrow(|b| {
+            match b {
+                Some(x) => x.running(),
+                None => false
             }
-        }
-        false
+        })
     }
 
     /// Returns the ball's TRUE state (without noise) in the format
@@ -581,22 +588,23 @@ impl FuzbAISimulator {
     /// where the translation is in normalized units [0..1] and the rotation is in range of
     /// [-64, 64], representing an entire circle (360 deg) in any direction.
     pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
-        if let Some(v) = G_MJ_VIEWER.get() {
-            let mut lock = v.lock().unwrap();
-            let scene = lock.user_scn_mut();
+        G_MJ_VIEWER.with_borrow_mut(|b| {
+            if let Some(v) = b {
+                let scene = v.user_scn_mut();
 
-            if let Some(unwrapped_ball_xyz) = ball_xyz {
-                Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
+                if let Some(unwrapped_ball_xyz) = ball_xyz {
+                    Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
+                }
+
+                if let Some(unwrapped_rot_tr) = rod_tr {
+                    Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
+                }
+
+                // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
+                v.sync();
+                v.render(false);
             }
-
-            if let Some(unwrapped_rot_tr) = rod_tr {
-                Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
-            }
-
-            // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
-            lock.sync();
-            lock.render(false);
-        }
+        });
     }
 
     /// Takes a screenshot of the current simulation state.
@@ -685,18 +693,20 @@ impl FuzbAISimulator {
             self.update_collisions();
 
             // If realtime, sync the viewer's state with out simulation state
-            if let Some(m) = G_MJ_VIEWER.get() {
-                let mut viewer = m.lock().unwrap();
-                if self.visual_config.refresh_steps > 0 && self.current_ll_step % self.visual_config.refresh_steps == 0 {
-                    if !viewer.running() {  // Prevent calls after closing the UI
-                        break;
-                    }
+            if !G_MJ_VIEWER.with_borrow_mut(|b| {
+                if let Some(viewer) = b {
+                    if self.visual_config.refresh_steps > 0 && self.current_ll_step % self.visual_config.refresh_steps == 0 {
+                        if !viewer.running() {  // Prevent calls after closing the UI
+                            return false;
+                        }
 
-                    viewer.sync();
-                    viewer.render(true);
+                        viewer.sync();
+                        viewer.render(true);
+                    }
+                    while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {};  // Accurate timing
                 }
-                while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {}  // Accurate timing
-            }
+                true
+            }) {break;};  // break the simulation loop if the viewer has been closed
         }
 
         self.update_visuals();
@@ -825,14 +835,15 @@ impl FuzbAISimulator {
         }
 
         // Reset the viwer's scene and draw the trace.
-        if let Some(viewer) = G_MJ_VIEWER.get() {
-            let mut lock = viewer.lock().unwrap();
-            let scene = lock.user_scn_mut();
-            unsafe { scene.raw().ngeom = 0 };  // pseude-clear existing geoms
+        G_MJ_VIEWER.with_borrow_mut(|b| {
+            if let Some(viewer) = b {
+                let scene = viewer.user_scn_mut();
+                unsafe { scene.raw().ngeom = 0 };  // pseude-clear existing geoms
 
-            // Draw trace
-            self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
-        }
+                // Draw trace
+                self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
+            }
+        });
     }
 
     /// Applies either externally set motor commands ([`FuzbAISimulator::external_team_red`] = `true`) or fetches
