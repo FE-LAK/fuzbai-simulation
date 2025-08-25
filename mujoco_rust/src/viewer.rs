@@ -1,7 +1,6 @@
 use crate::wrappers::*;
 use crate::mujoco_c;
 
-use std::sync::{Arc, Mutex};
 use std::ffi::CString;
 use std::fmt::Debug;
 use glfw;
@@ -22,7 +21,7 @@ unsafe impl Sync for MjViewer {}
 /// Normally, we would include references to them but it's very inconvenient.
 
 pub struct MjViewer {
-    sim: Arc<Mutex<*mut mujoco_c::mujoco_Simulate>>,
+    sim: *mut mujoco_c::mujoco_Simulate,
     running: bool,
 
     // Store these here since the C++ bindings save references to them.
@@ -48,7 +47,7 @@ impl MjViewer {
         &mut self._user_scn
     }
 
-    pub fn launch_passive(model: &MjModel, data: &mut MjData, scene_max_ngeom: usize) -> Box<Self> {
+    pub fn launch_passive(model: &MjModel, data: &mut MjData, scene_max_ngeom: usize) -> Self {
         let mut _glfw = glfw::init(glfw::fail_on_errors).unwrap();
 
         // Allocate on the heap as the data must not be moved due to C++ bindings
@@ -67,13 +66,12 @@ impl MjViewer {
             (*sim).RenderStep(true);
         }
 
-        let sim = Arc::new(Mutex::new(sim));
-        Box::new(Self {sim, running: true, _cam, _opt, _pert, _glfw, _user_scn})
+        Self {sim, running: true, _cam, _opt, _pert, _glfw, _user_scn}
     }
 
     /// Returns the underlying C++ binding object of the viewer.
-    pub fn raw(&mut self) -> Arc<Mutex<*mut mujoco_c::mujoco_Simulate>> {
-        self.sim.clone()
+    pub fn raw(&mut self) -> *mut mujoco_c::mujoco_Simulate {
+        self.sim
     }
 
     /// Renders the simulation.
@@ -85,15 +83,13 @@ impl MjViewer {
     pub fn render(&mut self, update_timer: bool) {
         unsafe {
             assert!(self.running, "render called after viewer has been closed!");
-            let lock = self.sim.lock().unwrap().as_mut().unwrap();
-            self.running = lock.RenderStep(update_timer);
+            self.running = (*self.sim).RenderStep(update_timer);
         }
     }
 
     pub fn sync(&mut self) {
         unsafe {
-            let lock = self.sim.lock().unwrap().as_mut().unwrap();
-            lock.Sync();
+            (*self.sim).Sync();
         }
     }
 }
@@ -102,9 +98,8 @@ impl MjViewer {
 impl Drop for MjViewer {
     fn drop(&mut self) {
         unsafe {
-            let lock = (*self.sim.lock().unwrap()).as_mut().unwrap();
-            lock.RenderCleanup();
-            mujoco_c::free_simulate(lock);
+            (*self.sim).RenderCleanup();
+            mujoco_c::free_simulate(self.sim);
         }
     }
 }

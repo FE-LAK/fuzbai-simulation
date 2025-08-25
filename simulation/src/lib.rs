@@ -113,7 +113,7 @@ pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
 /// Multiple viewers are not allowed (unless in a different process).
 /// This is a protection mechanism from accidentally launching multiple realtime
 /// simulations.
-pub static G_MJ_VIEWER: OnceLock<Mutex<Box<MjViewer>>> = OnceLock::new();
+pub static G_MJ_VIEWER: OnceLock<Mutex<MjViewer>> = OnceLock::new();
 
 /// High level simulation wrapping the MuJoCo physical
 /// simulation of the table football.
@@ -826,7 +826,7 @@ impl FuzbAISimulator {
 
         // Reset the viwer's scene and draw the trace.
         if let Some(viewer) = G_MJ_VIEWER.get() {
-            let mut lock: std::sync::MutexGuard<'_, Box<MjViewer>> = viewer.lock().unwrap();
+            let mut lock = viewer.lock().unwrap();
             let scene = lock.user_scn_mut();
             unsafe { scene.raw().ngeom = 0 };  // pseude-clear existing geoms
 
