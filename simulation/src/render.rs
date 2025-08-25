@@ -73,14 +73,13 @@ impl Render {
 
     pub fn render(&mut self) -> Vec<u16> {
         // [[0; RENDER_MAX_WIDTH]; RENDER_MAX_HEIGHT]
-        let mut output = vec![0; self.width * self.height * 3];  // width * height * 3 (red, green, blue)
+        let mut output;
         
         unsafe {
             glfw::ffi::glfwMakeContextCurrent(self.window.0);
-            let ctx_raw: *const mjrContext_ = self.ctx.raw();
-            mjr_render(self.rect, self.scene.raw_mut(), ctx_raw);
-            mjr_readPixels(output.as_mut_ptr(), ptr::null_mut(), self.rect, ctx_raw);
         }
+
+        output = self.scene.render(&self.rect, &self.ctx);
 
         // flip image upside-down
         let row_size = self.width * 3;
@@ -97,12 +96,10 @@ impl Render {
     }
 
     pub fn update_scene(&mut self, data: &mut MjData, camera_id: Option<isize>, camera_name: Option<String>) {
-        let model_raw = unsafe { data.model().raw() };
-
         let camera_id = if let Some(name) = camera_name {
             unsafe {
                 mj_name2id(
-                    model_raw, mjtObj__mjOBJ_CAMERA as i32,
+                    data.model().raw(), mjtObj__mjOBJ_CAMERA as i32,
                     CString::new(name).unwrap().as_ptr()
                 ) as isize
             }
@@ -110,14 +107,8 @@ impl Render {
             camera_id.unwrap_or(-1)  // free camera
         };
 
-
-        let mut camera = MjCamera::new(camera_id, data.model());
-        unsafe {
-            mjv_updateScene(
-                model_raw, data.raw_mut(), &self.scene_opt, ptr::null(),
-                camera.raw_mut(), mjtCatBit__mjCAT_ALL as i32, self.scene.raw_mut()
-            );
-        }
+        let mut camera = MjvCamera::new(camera_id, data.model());
+        self.scene.update(data, &self.scene_opt, &mut camera);
     }
 }
 
@@ -164,12 +155,8 @@ impl Visualizer {
         }
 
         n_iter -= 1;
-        let (ngeom, maxgeom) = {
-            let s = unsafe { scene.raw() };
-            (s.ngeom, s.maxgeom)
-        };
 
-        assert!(ngeom as usize + (n_iter - 1) * TRACE_GEOM_LEN < maxgeom as usize);
+        assert!(scene.ngeom as usize + (n_iter - 1) * TRACE_GEOM_LEN < scene.maxgeom as usize);
         for (i, (state_prev, state)) in self.trace_buffer.iter()
             .zip(self.trace_buffer.iter().skip(1)).enumerate()
         {
@@ -183,9 +170,8 @@ impl Visualizer {
                     |idx| BALL_TRACE_RGBA_START[idx] + coeff * BALL_TRACE_RGBA_DIFF[idx]
                 );
                 unsafe {
-                    let s = scene.raw_mut();
                     mujoco_rs::mujoco_c::mjv_initGeom(
-                        s.geoms.add(s.ngeom as usize),
+                        scene.geoms.add(scene.ngeom as usize),
                         mjtGeom__mjGEOM_CAPSULE as i32,
                         [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(),
                         ball_rgba.as_ptr()
@@ -193,11 +179,11 @@ impl Visualizer {
                     // Position and orient the capsule in such way that it
                     // connects the previous and current ball position
                     mujoco_rs::mujoco_c::mjv_connector(
-                        s.geoms.add(s.ngeom as usize),
+                        scene.geoms.add(scene.ngeom as usize),
                         mjtGeom__mjGEOM_CAPSULE as i32,
                         BALL_TRACE_RADIUS, state_prev.0.as_ptr(), state.0.as_ptr()
                     );
-                    s.ngeom += 1
+                    scene.ngeom += 1
                 }
             }
 
@@ -224,24 +210,22 @@ impl Visualizer {
             position[2] / 1000.0 + Z_FIELD
         ];
         unsafe {
-            let raw_scene = scene.raw_mut();
-            assert!(raw_scene.ngeom < raw_scene.maxgeom);
+            assert!(!scene.full());
             mujoco_rs::mujoco_c::mjv_initGeom(
-                raw_scene.geoms.add(raw_scene.ngeom as usize),
+                scene.geoms.add(scene.ngeom as usize),
                 mjtGeom__mjGEOM_SPHERE as i32,
                 &BALL_RADIUS_M,
                 position_global.as_ptr(),
                 std::ptr::null(),
                 color.as_ptr()
             );
-            raw_scene.ngeom += 1;
+            scene.ngeom += 1;
         }
     }
 
     pub fn render_rods_estimates<T>(scene: &mut MjvScene, pos_rot: T, color: Option<RGBAType>)
         where T: IntoIterator<Item=(usize, f64, f64, u8)>
     {
-        let raw_scene = unsafe { scene.raw_mut() };
         let mut first_position;
         let mut pos_xyz: [f64; 3];
         let mut pos_trans;
@@ -254,7 +238,7 @@ impl Visualizer {
 
         let color = color.unwrap_or(DEFAULT_ROD_ESTIMATE_RGBA);
         for (i, t, r, player_mask) in pos_rot {
-            assert!(raw_scene.ngeom < raw_scene.maxgeom);
+            assert!(!scene.full());
 
             first_position = ROD_TRAVELS[i] * (1.0 - t) + ROD_FIRST_OFFSET[i];
             pos_xyz = ROD_POSITIONS[i];
@@ -279,7 +263,7 @@ impl Visualizer {
                     dy = first_position + ROD_SPACING[i] * p as f64;
                     pos_trans = pos_xyz;
                     pos_trans[1] += dy;
-                    vgeom = raw_scene.geoms.add(raw_scene.ngeom as usize).as_mut().unwrap();
+                    vgeom = scene.geoms.add(scene.ngeom as usize).as_mut().unwrap();
 
                     // Rotation will affect the geom relative to it's MuJoCo geom coordinate system, however
                     // we want to rotate around the actual rod. We offset the geom away from the rod exactly
@@ -293,12 +277,12 @@ impl Visualizer {
                     // According to mujoco/src/engine/engine_vis_visualize.c, actual data id is twice the mesh id...
                     // ! Good thing that this isn't documented anywhere in the MuJoCo docs !.
                     vgeom.dataid =  ROD_MESH_UPPER_PLAYER_ID * 2;
-                    raw_scene.ngeom += 1;
+                    scene.ngeom += 1;
 
                     // Same for the bottom geom of the player
                     pos_trans = pos_xyz;
                     pos_trans[1] += dy;
-                    vgeom = raw_scene.geoms.add(raw_scene.ngeom as usize).as_mut().unwrap();
+                    vgeom = scene.geoms.add(scene.ngeom as usize).as_mut().unwrap();
                     mat_bottom = [0.0; 9];
 
                     // Rotate the bottom part 90 degrees around x first, then apply the joint rotation
@@ -314,7 +298,7 @@ impl Visualizer {
                     mjv_initGeom(vgeom, mjtGeom__mjGEOM_MESH as i32, ptr::null(),
                                  pos_trans.as_ptr(), mat_bottom.as_ptr(), color.as_ptr());                        
                     vgeom.dataid =  ROD_MESH_LOWER_PLAYER_ID * 2;
-                    raw_scene.ngeom += 1;
+                    scene.ngeom += 1;
                 }
             }
         }

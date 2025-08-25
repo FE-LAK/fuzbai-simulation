@@ -2,14 +2,8 @@ use crate::wrappers::*;
 use crate::mujoco_c;
 
 use std::ffi::CString;
-use std::fmt::Debug;
 use glfw;
 
-// Threading workarounds
-// SAFETY: Implemend Sync and Send despite raw pointers as we will only
-// control this object via its methods. All of them have internal C++ mutex accesses.
-unsafe impl Send for mujoco_c::mujoco_Simulate {}
-unsafe impl Send for MjViewer {}
 
 /// Wrapper around the C++ implementation of MujoCo viewer
 /// # SAFETY
@@ -57,7 +51,7 @@ impl MjViewer {
             mujoco_c::mjv_defaultCamera(&mut *_cam);
             mujoco_c::mjv_defaultOption(&mut *_opt);
             mujoco_c::mjv_defaultPerturb(&mut *_pert);
-            sim = mujoco_c::new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, _user_scn.raw_mut(), true);
+            sim = mujoco_c::new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, &mut *_user_scn, true);
             (*sim).RenderInit();
             (*sim).Load(model.raw_mut(), data.raw_mut(), CString::new("file.xml").unwrap().as_ptr());
             (*sim).RenderStep(true);
@@ -98,11 +92,5 @@ impl Drop for MjViewer {
             (*self.sim).RenderCleanup();
             mujoco_c::free_simulate(self.sim);
         }
-    }
-}
-
-impl Debug for MjViewer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MjViewer {{ }}")
     }
 }

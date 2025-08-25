@@ -838,7 +838,7 @@ impl FuzbAISimulator {
         G_MJ_VIEWER.with_borrow_mut(|b| {
             if let Some(viewer) = b {
                 let scene = viewer.user_scn_mut();
-                unsafe { scene.raw_mut().ngeom = 0 };  // pseude-clear existing geoms
+                scene.clear_geom();
 
                 // Draw trace
                 self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);

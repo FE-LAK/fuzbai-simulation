@@ -5,6 +5,8 @@ use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::ptr;
 
+use glfw::ffi::{glfwGetCurrentContext, glfwGetWindowSize};
+
 use crate::mujoco_c::*;
 
 
@@ -34,7 +36,6 @@ pub type MjOption = mjOption;
 pub type MjvOption = mjvOption;
 pub type MjContact = mjContact;
 pub type MjRectangle = mjrRect;
-
 
 /// A struct for wrapping mutable raw pointers.
 /// It allows raw pointers to be used in threaded-scenarios.
@@ -103,42 +104,96 @@ unsafe impl<T> Send for PointerView<T> {}
 unsafe impl<T> Sync for PointerView<T> {}
 
 
-/// Wrapper around MuJoCo's `mjvScene`.
-pub struct MjvScene {
-    raw: mjvScene
+unsafe impl Send for mjvScene {}
+unsafe impl Sync for mjvScene {}
+unsafe impl Send for mjrContext_ {}
+unsafe impl Sync for mjrContext_{}
+
+
+pub type MjvCamera = mjvCamera;
+impl MjvCamera {
+    pub fn new(camera_id: isize, model: &MjModel) -> Self {
+        let mut camera = mjvCamera::default();
+        unsafe { mjv_defaultCamera(&mut camera); };
+
+        camera.fixedcamid = camera_id as i32;
+        if camera_id == -1 {  // free camera
+            camera.type_ = mjtCamera__mjCAMERA_FREE as i32;
+            unsafe { mjv_defaultFreeCamera(model.raw(), &mut camera); }
+        }
+        else {
+            camera.type_ = mjtCamera__mjCAMERA_FIXED as i32;
+        }
+
+        camera
+    }
 }
 
+
+pub type MjvScene = mjvScene;
 impl MjvScene {
     pub fn new(model: &MjModel, max_geom: usize) -> Self {
-        let mut raw = mjvScene::default();
+        let mut scn: mjvScene_ = Self::default();
         unsafe {
-            mjv_makeScene(model.raw(), &mut raw, max_geom as i32);
-            Self {raw}
+            mjv_makeScene(model.raw(), &mut scn, max_geom as i32);
+            scn
         }
     }
 
-    pub unsafe fn raw(&self) -> &mjvScene {
-        &self.raw
+    pub fn update(&mut self, data: &mut MjData, opt: &MjvOption, cam: &mut MjvCamera) {
+        unsafe {
+            mjv_updateScene(
+                data.model.raw(), data.raw_mut(), opt, ptr::null(),
+                cam, mjtCatBit__mjCAT_ALL as i32, self
+            );
+        }
     }
 
-    pub unsafe fn raw_mut(&mut self) -> &mut mjvScene {
-        &mut self.raw
+    /// Returns `true` when the scene is full (ngeom == maxgeom).
+    pub fn full(&self) -> bool {
+        self.ngeom == self.maxgeom
+    }
+
+    /// Clears the created geoms.
+    pub fn clear_geom(&mut self) {
+        self.ngeom = 0;
+    }
+
+    /// Renders the scene to the screen. This does not automatically make the OpenGL context current.
+    pub fn render(&mut self, viewport: &MjRectangle, context: &MjContext) -> Vec<u8> {
+        unsafe {
+            /* Read window size */
+            let window = glfwGetCurrentContext();
+            let mut width  = 0;
+            let mut height = 0;
+            glfwGetWindowSize(window, &mut width, &mut height);
+
+            let mut output = vec![0; width as usize * height as usize * 3];  // width * height * RGB
+
+            mjr_render(viewport.clone(), self, context.raw());
+            self.read_pixels(&mut output, viewport, context);
+            output
+        }
+    }
+
+
+    /// Reads the render scene and writes the image data to `output`. The size of the `output` must 
+    /// be `width * height * 3`, where `width` and `height` are the sizes of the current glfw window
+    /// context.
+    pub fn read_pixels(&self, output: &mut [u8], viewport: &MjRectangle, context: &MjContext) {
+        unsafe {
+            mjr_readPixels(output.as_mut_ptr(), ptr::null_mut(), viewport.clone(), context.raw())
+        }
     }
 }
 
 impl Drop for MjvScene {
     fn drop(&mut self) {
         unsafe {
-            mjv_freeScene(&mut self.raw);
+            mjv_freeScene(self);
         }
     }
 }
-
-/// Unsafe implementations required for bypassing thread safety checks.
-/// This is NOT thread safe, responsibility is on the user.
-unsafe impl Send for MjvScene {}
-unsafe impl Sync for MjvScene {}
-
 
 #[derive(Debug)]
 pub struct MjModel {
@@ -464,35 +519,6 @@ impl Drop for MjContext {
         unsafe {
             mjr_freeContext(&mut self.raw);
         }
-    }
-}
-
-unsafe impl Send for mjrContext {}
-unsafe impl Sync for mjrContext {}
-
-pub struct MjCamera {
-    raw: mjvCamera,
-}
-
-impl MjCamera {
-    pub fn new(camera_id: isize, model: &MjModel) -> Self {
-        let mut raw = mjvCamera::default();
-        unsafe { mjv_defaultCamera(&mut raw); };
-
-        raw.fixedcamid = camera_id as i32;
-        if camera_id == -1 {  // free camera
-            raw.type_ = mjtCamera__mjCAMERA_FREE as i32;
-            unsafe { mjv_defaultFreeCamera(model.raw(), &mut raw); }
-        }
-        else {
-            raw.type_ = mjtCamera__mjCAMERA_FIXED as i32;
-        }
-
-        Self {raw}
-    }
-
-    pub unsafe fn raw_mut(&mut self) -> *mut mjvCamera {
-        &mut self.raw
     }
 }
 
