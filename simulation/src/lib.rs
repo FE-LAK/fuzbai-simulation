@@ -390,11 +390,11 @@ impl FuzbAISimulator {
 
     /// Returns the ball's TRUE state (without noise) in the format
     /// (x, y, z, vx, vy)
-    pub fn ball_true_state(&self) -> (f64, f64, f64, f64, f64, f64) {
+    pub fn ball_true_state(&self) -> [f64; 6] {
         let [x, y, z, ..] = *self.mj_data_joint_ball.qpos else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
         let [vx, vy, vz, ..] = *self.mj_data_joint_ball.qvel else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
 
-        (1000.0 * x - 115.0, 727.0 - 1000.0 * y, 1000.0 * z, vx, -vy, vz)
+        [1000.0 * x - 115.0, 727.0 - 1000.0 * y, 1000.0 * z, vx, -vy, vz]
     }
 
     pub fn rods_true_state(&self) -> ([f64; 8], [f64; 8], [f64; 8], [f64; 8]) {
@@ -838,7 +838,7 @@ impl FuzbAISimulator {
         G_MJ_VIEWER.with_borrow_mut(|b| {
             if let Some(viewer) = b {
                 let scene = viewer.user_scn_mut();
-                unsafe { scene.raw().ngeom = 0 };  // pseude-clear existing geoms
+                unsafe { scene.raw_mut().ngeom = 0 };  // pseude-clear existing geoms
 
                 // Draw trace
                 self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
@@ -900,7 +900,7 @@ impl FuzbAISimulator {
     /// This exists for performance reasons, users should use [`observation`](FuzbAISimulator::observation) instead.
     #[inline]
     fn observation_red(&self) -> ObservationType {
-        let (mut ball_x, mut ball_y, _, mut ball_vx, mut ball_vy, _) = self.ball_true_state();
+        let [mut ball_x, mut ball_y, _, mut ball_vx, mut ball_vy, _] = self.ball_true_state();
         let (mut rod_positions, mut rod_rotations, ..) = self.rods_true_state();
 
         let dist = Uniform::new(0.0, 1.0).unwrap();

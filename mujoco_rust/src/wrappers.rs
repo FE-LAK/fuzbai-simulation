@@ -36,8 +36,13 @@ pub type MjContact = mjContact;
 pub type MjRectangle = mjrRect;
 
 
+/// A struct for wrapping mutable raw pointers.
+/// It allows raw pointers to be used in threaded-scenarios.
+/// # SAFETY
+/// It is assumed that the wrapped pointer cannot be used 
+/// outside a single thread. It is the responsibility of the user to ensure this.
 #[derive(Debug)]
-struct MjMutPtrWrapper<T>(*mut T);
+pub struct MjMutPtrWrapper<T>(pub *mut T);
 
 
 /// Unsafe implementation of [`Send`] for raw mutable pointers to MuJoCo's types.
@@ -51,11 +56,7 @@ unsafe impl<T> Send for MjMutPtrWrapper<T> {}
 /// See [`Send`] implementation of [`MjMutPtrWrapper`].
 unsafe impl<T> Sync for MjMutPtrWrapper<T> {}
 
-unsafe impl Send for mjrContext {}
-unsafe impl Sync for mjrContext {}
-
 /* STRUCTS */
-
 /// Provides a more direct view to a C array.
 #[derive(Debug)]
 pub struct PointerView<T> {
@@ -104,26 +105,31 @@ unsafe impl<T> Sync for PointerView<T> {}
 
 /// Wrapper around MuJoCo's `mjvScene`.
 pub struct MjvScene {
-    raw: Box<mjvScene>
+    raw: mjvScene
 }
 
 impl MjvScene {
     pub fn new(model: &MjModel, max_geom: usize) -> Self {
-        let mut raw = Box::new(mjvScene::default());
+        let mut raw = mjvScene::default();
         unsafe {
-            mjv_makeScene(model.raw(), raw.as_mut(), max_geom as i32);
+            mjv_makeScene(model.raw(), &mut raw, max_geom as i32);
             Self {raw}
         }
     }
-    pub unsafe fn raw(&mut self) -> &mut mjvScene {
-        self.raw.as_mut()
+
+    pub unsafe fn raw(&self) -> &mjvScene {
+        &self.raw
+    }
+
+    pub unsafe fn raw_mut(&mut self) -> &mut mjvScene {
+        &mut self.raw
     }
 }
 
 impl Drop for MjvScene {
     fn drop(&mut self) {
         unsafe {
-            mjv_freeScene(&mut *self.raw);
+            mjv_freeScene(&mut self.raw);
         }
     }
 }
@@ -460,6 +466,9 @@ impl Drop for MjContext {
         }
     }
 }
+
+unsafe impl Send for mjrContext {}
+unsafe impl Sync for mjrContext {}
 
 pub struct MjCamera {
     raw: mjvCamera,

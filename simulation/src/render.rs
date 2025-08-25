@@ -7,7 +7,6 @@ use std::ffi::CString;
 use crate::types::*;
 use core::f64;
 use std::ptr;
-use glfw;
 
 
 /// Struct encapsulating screenshot required functionality.
@@ -18,7 +17,7 @@ pub struct Render {
     scene_opt: MjvOption,
     rect: MjRectangle,
     ctx: MjContext,
-    window: *mut glfw::ffi::GLFWwindow,
+    window: MjMutPtrWrapper<glfw::ffi::GLFWwindow>,
     owns_glfw: bool
 }
 
@@ -41,7 +40,6 @@ impl Render {
             else {
                 owns_glfw = false;
             }
-
             glfw::ffi::glfwWindowHint(glfw::ffi::VISIBLE, 0);
             window = glfw::ffi::glfwCreateWindow(
                 width as i32, height as i32, CString::new("empty window").unwrap().as_ptr(),
@@ -58,7 +56,7 @@ impl Render {
             scene, scene_opt: options,
             rect: MjRectangle {left: 0, bottom: 0, width: width as i32, height: height as i32},
             ctx: ctx,
-            window,
+            window: MjMutPtrWrapper(window),
             owns_glfw
         }
     }
@@ -78,9 +76,9 @@ impl Render {
         let mut output = vec![0; self.width * self.height * 3];  // width * height * 3 (red, green, blue)
         
         unsafe {
-            glfw::ffi::glfwMakeContextCurrent(self.window);
+            glfw::ffi::glfwMakeContextCurrent(self.window.0);
             let ctx_raw: *const mjrContext_ = self.ctx.raw();
-            mjr_render(self.rect, self.scene.raw(), ctx_raw);
+            mjr_render(self.rect, self.scene.raw_mut(), ctx_raw);
             mjr_readPixels(output.as_mut_ptr(), ptr::null_mut(), self.rect, ctx_raw);
         }
 
@@ -117,7 +115,7 @@ impl Render {
         unsafe {
             mjv_updateScene(
                 model_raw, data.raw_mut(), &self.scene_opt, ptr::null(),
-                camera.raw_mut(), mjtCatBit__mjCAT_ALL as i32, self.scene.raw()
+                camera.raw_mut(), mjtCatBit__mjCAT_ALL as i32, self.scene.raw_mut()
             );
         }
     }
@@ -130,12 +128,6 @@ impl Drop for Render {
         }
     }
 }
-
-
-/// SAFETY: The entire simulation is not thread-safe by default, responsibility is on the user.
-unsafe impl Sync for Render {}
-unsafe impl Send for Render {}
-
 
 
 /// Records and renders trace of XYZ data. Also allows rendering of ball and rod estimates.
@@ -191,7 +183,7 @@ impl Visualizer {
                     |idx| BALL_TRACE_RGBA_START[idx] + coeff * BALL_TRACE_RGBA_DIFF[idx]
                 );
                 unsafe {
-                    let s = scene.raw();
+                    let s = scene.raw_mut();
                     mujoco_rs::mujoco_c::mjv_initGeom(
                         s.geoms.add(s.ngeom as usize),
                         mjtGeom__mjGEOM_CAPSULE as i32,
@@ -232,7 +224,7 @@ impl Visualizer {
             position[2] / 1000.0 + Z_FIELD
         ];
         unsafe {
-            let raw_scene = scene.raw();
+            let raw_scene = scene.raw_mut();
             assert!(raw_scene.ngeom < raw_scene.maxgeom);
             mujoco_rs::mujoco_c::mjv_initGeom(
                 raw_scene.geoms.add(raw_scene.ngeom as usize),
@@ -249,7 +241,7 @@ impl Visualizer {
     pub fn render_rods_estimates<T>(scene: &mut MjvScene, pos_rot: T, color: Option<RGBAType>)
         where T: IntoIterator<Item=(usize, f64, f64, u8)>
     {
-        let raw_scene = unsafe { scene.raw() };
+        let raw_scene = unsafe { scene.raw_mut() };
         let mut first_position;
         let mut pos_xyz: [f64; 3];
         let mut pos_trans;

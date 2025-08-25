@@ -9,10 +9,7 @@ use glfw;
 // SAFETY: Implemend Sync and Send despite raw pointers as we will only
 // control this object via its methods. All of them have internal C++ mutex accesses.
 unsafe impl Send for mujoco_c::mujoco_Simulate {}
-unsafe impl Sync for mujoco_c::mujoco_Simulate {}
-
 unsafe impl Send for MjViewer {}
-unsafe impl Sync for MjViewer {}
 
 /// Wrapper around the C++ implementation of MujoCo viewer
 /// # SAFETY
@@ -29,7 +26,7 @@ pub struct MjViewer {
     _cam: Box<mujoco_c::mjvCamera>,
     _opt: Box<mujoco_c::mjvOption>,
     _pert: Box<mujoco_c::mjvPerturb>,
-    _user_scn: MjvScene,
+    _user_scn: Box<MjvScene>,
     _glfw: glfw::Glfw
 }
 
@@ -54,13 +51,13 @@ impl MjViewer {
         let mut _cam = Box::new(mujoco_c::mjvCamera::default());
         let mut _opt: Box<mujoco_c::mjvOption_> = Box::new(mujoco_c::mjvOption::default());
         let mut _pert = Box::new(mujoco_c::mjvPerturb::default());
-        let mut _user_scn = MjvScene::new(&model, scene_max_ngeom);
+        let mut _user_scn = Box::new(MjvScene::new(&model, scene_max_ngeom));
         let sim;
         unsafe {
             mujoco_c::mjv_defaultCamera(&mut *_cam);
             mujoco_c::mjv_defaultOption(&mut *_opt);
             mujoco_c::mjv_defaultPerturb(&mut *_pert);
-            sim = mujoco_c::new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, _user_scn.raw(), true);
+            sim = mujoco_c::new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, _user_scn.raw_mut(), true);
             (*sim).RenderInit();
             (*sim).Load(model.raw_mut(), data.raw_mut(), CString::new("file.xml").unwrap().as_ptr());
             (*sim).RenderStep(true);
