@@ -1,25 +1,25 @@
-use crate::wrappers::*;
-use crate::mujoco_c;
-
 use std::ffi::CString;
 use glfw;
 
+use crate::mujoco_c::{mujoco_Simulate, new_simulate, free_simulate};
+use crate::wrappers::mj_visualization::*;
+use crate::wrappers::mj_model::MjModel;
+use crate::wrappers::mj_data::MjData;
 
 /// Wrapper around the C++ implementation of MujoCo viewer
 /// # SAFETY
 /// Due to performance reasons and PyO3, this must be destroyed before
 /// [`MjData`] and [`MjModel`] instances that are passed in the constructor.
 /// Normally, we would include references to them but it's very inconvenient.
-
 pub struct MjViewer {
-    sim: *mut mujoco_c::mujoco_Simulate,
+    sim: *mut mujoco_Simulate,
     running: bool,
 
     // Store these here since the C++ bindings save references to them.
     // We don't actually need them ourselves, at least not here.
-    _cam: Box<mujoco_c::mjvCamera>,
-    _opt: Box<mujoco_c::mjvOption>,
-    _pert: Box<mujoco_c::mjvPerturb>,
+    _cam: Box<MjvCamera>,
+    _opt: Box<MjvOption>,
+    _pert: Box<MjvPerturb>,
     _user_scn: Box<MjvScene>,
     _glfw: glfw::Glfw
 }
@@ -38,22 +38,19 @@ impl MjViewer {
         &mut self._user_scn
     }
 
-    pub fn launch_passive(model: &MjModel, data: &mut MjData, scene_max_ngeom: usize) -> Self {
+    pub fn launch_passive(model: &MjModel, data: &MjData, scene_max_ngeom: usize) -> Self {
         let mut _glfw = glfw::init(glfw::fail_on_errors).unwrap();
 
         // Allocate on the heap as the data must not be moved due to C++ bindings
         let mut _cam = Box::new(MjvCamera::default());
-        let mut _opt: Box<mujoco_c::mjvOption_> = Box::new(MjvOption::default());
+        let mut _opt: Box<MjvOption> = Box::new(MjvOption::default());
         let mut _pert = Box::new(MjvPerturb::default());
         let mut _user_scn = Box::new(MjvScene::new(&model, scene_max_ngeom));
         let sim;
         unsafe {
-            mujoco_c::mjv_defaultCamera(&mut *_cam);
-            mujoco_c::mjv_defaultOption(&mut *_opt);
-            mujoco_c::mjv_defaultPerturb(&mut *_pert);
-            sim = mujoco_c::new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, &mut *_user_scn, true);
+            sim = new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, &mut *_user_scn, true);
             (*sim).RenderInit();
-            (*sim).Load(model.raw_mut(), data.raw_mut(), CString::new("file.xml").unwrap().as_ptr());
+            (*sim).Load(model.__raw(), data.__raw(), CString::new("file.xml").unwrap().as_ptr());
             (*sim).RenderStep(true);
         }
 
@@ -61,7 +58,7 @@ impl MjViewer {
     }
 
     /// Returns the underlying C++ binding object of the viewer.
-    pub fn raw(&mut self) -> *mut mujoco_c::mujoco_Simulate {
+    pub fn raw(&mut self) -> *mut mujoco_Simulate {
         self.sim
     }
 
@@ -90,7 +87,7 @@ impl Drop for MjViewer {
     fn drop(&mut self) {
         unsafe {
             (*self.sim).RenderCleanup();
-            mujoco_c::free_simulate(self.sim);
+            free_simulate(self.sim);
         }
     }
 }

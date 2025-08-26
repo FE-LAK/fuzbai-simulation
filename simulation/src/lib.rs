@@ -1,4 +1,4 @@
-use mujoco_rs::mujoco_c::{mj_name2id, mjtObj__mjOBJ_GEOM};
+use mujoco_rs::mujoco_c::mjtObj__mjOBJ_GEOM;
 use agent_rust::Agent as BuiltInAgent;
 use mujoco_rs::viewer::MjViewer;
 use mujoco_rs::lodepng_c::*;
@@ -223,7 +223,7 @@ impl FuzbAISimulator {
         assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larget than {MAX_DELAY_S}");
         assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
 
-        let mj_model = G_MJ_MODEL.get_or_init(|| {
+        let model = G_MJ_MODEL.get_or_init(|| {
             if let Some(path) = model_path {
                 MjModel::from_xml(path)
             }
@@ -233,7 +233,7 @@ impl FuzbAISimulator {
             .expect("could not load the MuJoCo model")
         });
 
-        let mut mj_data = MjData::new(mj_model);
+        let mut mj_data = MjData::new(model);
         // Make sure we have forward kinematics calculated before doing any stepping (in case reset will not be called).
         // In the step_simulation method we call step2 first and step1 after to prevent non-state attributes of MjData
         // from lagging behind one low-level step.
@@ -244,7 +244,7 @@ impl FuzbAISimulator {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
                     let v = mujoco_rs::viewer::MjViewer::launch_passive(
-                        mj_model, &mut mj_data,
+                        model, &mj_data,
                         VIEWER_MAX_STATIC_SCENE_GEOM + visual_config.trace_length * TRACE_GEOM_LEN
                     );
                         *borrow = Some(v);
@@ -263,18 +263,16 @@ impl FuzbAISimulator {
         let mj_data_act_rod_rot: [MjDataViewActuator; 8] = std::array::from_fn(|i| mj_data.actuator(&format!("p{}_revolute_ctrl", i+1)).unwrap());
 
         // Find geom IDs of the individual goals. This is used for detecting scored goals.
-        let mj_red_goal_geom_ids;
-        let mj_blue_goal_geom_ids;
-        unsafe {
-            mj_red_goal_geom_ids = [
-                mj_name2id(mj_model.raw(), mjtObj__mjOBJ_GEOM as i32, CString::new("left-goal-hole").unwrap().as_ptr()),
-                mj_name2id(mj_model.raw(), mjtObj__mjOBJ_GEOM as i32, CString::new("left-goal-back").unwrap().as_ptr()),
-            ];
-            mj_blue_goal_geom_ids = [
-                mj_name2id(mj_model.raw(), mjtObj__mjOBJ_GEOM as i32, CString::new("right-goal-hole").unwrap().as_ptr()),
-                mj_name2id(mj_model.raw(), mjtObj__mjOBJ_GEOM as i32, CString::new("right-goal-back").unwrap().as_ptr()),
-            ];
-        }
+        let mj_red_goal_geom_ids = [
+            model.name2id(mjtObj__mjOBJ_GEOM as i32, "left-goal-hole"),
+            model.name2id(mjtObj__mjOBJ_GEOM as i32, "left-goal-back"),
+            
+        ];
+
+        let mj_blue_goal_geom_ids = [
+            model.name2id(mjtObj__mjOBJ_GEOM as i32, "right-goal-hole"),
+            model.name2id(mjtObj__mjOBJ_GEOM as i32, "right-goal-back"),
+        ];
 
         // Initialize internal player teams
         let mut red_builtin_player = BuiltInAgent::new(simulated_delay_s);
@@ -311,7 +309,7 @@ impl FuzbAISimulator {
         let trace_length = visual_config.trace_length;
         let renderer = if let Some((width, height)) = visual_config.screenshot_size {
             Some(Render::new(
-                mj_model, width, height,
+                model, width, height,
                 SCREENSHOT_MAX_ESTIMATE_SCENE_GEOM + trace_length * TRACE_GEOM_LEN
             ))
         } else {
@@ -932,7 +930,6 @@ impl FuzbAISimulator {
         // while we are iterating the contacts (borrow checker). 
         for (contact_id, contact) in self.mj_data.contacts().iter().enumerate() {
             let geom_id = contact.geom2 as usize;  // geom1 is the ball geom's ID, geom2 is the other geom in contact
-            let mut force = [0.0; 6];
             let frame;
             let fx;
             let fy;
@@ -948,13 +945,7 @@ impl FuzbAISimulator {
                 continue;
             }
 
-            unsafe {
-                mujoco_rs::mujoco_c::mj_contactForce(
-                    G_MJ_MODEL.get().unwrap().raw(), self.mj_data.raw(),
-                    contact_id as i32, force.as_mut_ptr()
-                )
-            };
-
+            let force = self.mj_data.contact_force(contact_id);
             frame = contact.frame;
             fx = -frame[0] * force[0];
             fy = -frame[1] * force[0];

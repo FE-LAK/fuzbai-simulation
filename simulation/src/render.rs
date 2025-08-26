@@ -15,23 +15,27 @@ pub struct Render {
     height: usize,
     scene: MjvScene,
     scene_opt: MjvOption,
-    rect: MjRectangle,
-    ctx: MjContext,
-    window: MjMutPtrWrapper<glfw::ffi::GLFWwindow>,
+    rect: MjrRectangle,
+    ctx: MjrContext,
+    window: *mut glfw::ffi::GLFWwindow,
     owns_glfw: bool
 }
 
+// We only use the raw pointer to check for previous OpenGL contexts to prevent
+// destroying OpenGL data when the C++ code uses it. This is technically not thread-safe
+// as OpenGL doesn't even allow usage outside the main thread (it seems like they tried to make the library unusable lol).
+unsafe impl Send for Render {}
+unsafe impl Sync for Render {}
 
 impl Render {
     pub fn new(model: &MjModel, width: usize, height: usize, max_geom: usize) -> Self {
         let scene = MjvScene::new(model, max_geom);
         let mut ctx;
         let window;
-        let mut options = MjvOption::default();
+        let options = MjvOption::default();
         let owns_glfw;
 
         unsafe {
-            mjv_defaultOption(&mut options);
             let prev_ctx = glfw::ffi::glfwGetCurrentContext();
             if prev_ctx.is_null() {
                 glfw::ffi::glfwInit();  // TODO: refactor simulate.cc to accept glfw separately
@@ -47,16 +51,16 @@ impl Render {
             );
 
             glfw::ffi::glfwMakeContextCurrent(window);
-            ctx = MjContext::new(model);
+            ctx = MjrContext::new(model);
             ctx.offscreen();
         }
 
         Self {
             width, height,
             scene, scene_opt: options,
-            rect: MjRectangle {left: 0, bottom: 0, width: width as i32, height: height as i32},
+            rect: MjrRectangle {left: 0, bottom: 0, width: width as i32, height: height as i32},
             ctx: ctx,
-            window: MjMutPtrWrapper(window),
+            window: window,
             owns_glfw
         }
     }
@@ -76,7 +80,7 @@ impl Render {
         let mut output;
         
         unsafe {
-            glfw::ffi::glfwMakeContextCurrent(self.window.0);
+            glfw::ffi::glfwMakeContextCurrent(self.window);
         }
 
         output = self.scene.render(&self.rect, &self.ctx);
@@ -97,17 +101,12 @@ impl Render {
 
     pub fn update_scene(&mut self, data: &mut MjData, camera_id: Option<isize>, camera_name: Option<String>) {
         let camera_id = if let Some(name) = camera_name {
-            unsafe {
-                mj_name2id(
-                    data.model().raw(), mjtObj__mjOBJ_CAMERA as i32,
-                    CString::new(name).unwrap().as_ptr()
-                ) as isize
-            }
+            data.model().name2id(mjtObj__mjOBJ_CAMERA as i32, &name)
         } else {
-            camera_id.unwrap_or(-1)  // free camera
+            camera_id.unwrap_or(-1) as i32  // free camera
         };
 
-        let mut camera = MjvCamera::new(camera_id, data.model());
+        let mut camera = MjvCamera::new(camera_id as isize, data.model());
         self.scene.update(data, &self.scene_opt, &mut camera);
     }
 }
