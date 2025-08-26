@@ -48,7 +48,7 @@ impl Render {
 
             glfw::ffi::glfwMakeContextCurrent(window);
             ctx = MjContext::new(model);
-            mjr_setBuffer(mjtFramebuffer__mjFB_OFFSCREEN as i32, ctx.raw_mut());
+            ctx.offscreen();
         }
 
         Self {

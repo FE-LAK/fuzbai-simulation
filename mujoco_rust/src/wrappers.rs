@@ -2,6 +2,7 @@
 use std::io::{self, Error, ErrorKind};
 use std::ffi::{c_int, c_void, CString};
 use std::ops::{Deref, DerefMut};
+use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr;
 
@@ -33,9 +34,9 @@ macro_rules! slice_from_id {
 
 /* Type redefinitions */
 pub type MjOption = mjOption;
-pub type MjvOption = mjvOption;
 pub type MjContact = mjContact;
 pub type MjRectangle = mjrRect;
+pub type MjtFrameBuffer = mjtFramebuffer;
 
 /// A struct for wrapping mutable raw pointers.
 /// It allows raw pointers to be used in threaded-scenarios.
@@ -110,11 +111,68 @@ unsafe impl Send for mjrContext_ {}
 unsafe impl Sync for mjrContext_{}
 
 
+pub type MjVfs = mjVFS;
+impl MjVfs {
+    pub fn new() -> Self {
+        unsafe {
+            let mut s = MaybeUninit::uninit();
+            mj_defaultVFS(s.as_mut_ptr());
+            s.assume_init()
+        }
+    }
+
+    /// Adds a file to the virtual file system from a buffer.
+    pub fn add_from_buffer(&mut self, filename: &str, buffer: &[u8]) -> io::Result<()> {
+        unsafe {
+            match mj_addBufferVFS(
+                self, CString::new(filename).unwrap().as_ptr(),
+                buffer.as_ptr() as *const c_void, buffer.len() as i32
+            ) {
+                2 => Err(Error::new(ErrorKind::AlreadyExists, "repeated name")),
+                -1 => Err(Error::new(ErrorKind::InvalidData, "failed to load")),
+                _ => Ok(())
+            }
+        }
+    }
+}
+
+impl Drop for MjVfs {
+    fn drop(&mut self) {
+        unsafe {
+            mj_deleteVFS(self);
+        }
+    }
+}
+
+
+pub type MjvPerturb = mjvPerturb;
+impl Default for MjvPerturb {
+    fn default() -> Self {
+        unsafe {
+            let mut pert = MaybeUninit::uninit();
+            mjv_defaultPerturb(pert.as_mut_ptr());
+            pert.assume_init()
+        }
+    }
+}
+
+
+pub type MjvOption = mjvOption;
+impl Default for MjvOption {
+    fn default() -> Self {
+        let mut opt = MaybeUninit::uninit();
+        unsafe {
+            mjv_defaultOption(opt.as_mut_ptr());
+            opt.assume_init()
+        }
+    }
+}
+
+
 pub type MjvCamera = mjvCamera;
 impl MjvCamera {
     pub fn new(camera_id: isize, model: &MjModel) -> Self {
-        let mut camera = mjvCamera::default();
-        unsafe { mjv_defaultCamera(&mut camera); };
+        let mut camera = Self::default();
 
         camera.fixedcamid = camera_id as i32;
         if camera_id == -1 {  // free camera
@@ -126,6 +184,16 @@ impl MjvCamera {
         }
 
         camera
+    }
+}
+
+impl Default for MjvCamera {
+    fn default() -> Self {
+        unsafe {
+            let mut c = MaybeUninit::uninit();
+            mjv_defaultCamera(c.as_mut_ptr());
+            c.assume_init()
+        }
     }
 }
 
@@ -170,7 +238,7 @@ impl MjvScene {
 
             let mut output = vec![0; width as usize * height as usize * 3];  // width * height * RGB
 
-            mjr_render(viewport.clone(), self, context.raw());
+            mjr_render(viewport.clone(), self, context);
             self.read_pixels(&mut output, viewport, context);
             output
         }
@@ -182,7 +250,17 @@ impl MjvScene {
     /// context.
     pub fn read_pixels(&self, output: &mut [u8], viewport: &MjRectangle, context: &MjContext) {
         unsafe {
-            mjr_readPixels(output.as_mut_ptr(), ptr::null_mut(), viewport.clone(), context.raw())
+            mjr_readPixels(output.as_mut_ptr(), ptr::null_mut(), viewport.clone(), context)
+        }
+    }
+}
+
+impl Default for MjvScene {
+    fn default() -> Self {
+        unsafe {
+            let mut scn = MaybeUninit::uninit();
+            mjv_defaultScene(scn.as_mut_ptr());
+            scn.assume_init()
         }
     }
 }
@@ -242,22 +320,14 @@ impl MjModel {
         unsafe {
             // Create a virtual FS since we don't have direct access to the load buffer function (or at least it isn't officially exposed).
             // let raw_ptr = mj_loadModelBuffer(data.as_ptr() as *const c_void, data.len() as i32);
-            let raw_model;
-            let mut raw_vfs = mjVFS::default();
-            let filename = CString::new("miza.mjb").unwrap();
+            let mut vfs = MjVfs::new();
+            let filename = "miza.mjb";
 
             // Add the file into a virtual file system
-            mj_defaultVFS(&mut raw_vfs);
-            if mj_addBufferVFS(
-                &mut raw_vfs, filename.as_ptr(),
-                data.as_ptr() as *const c_void, data.len() as i32
-            ) != 0 {
-                return Err(Error::new(io::ErrorKind::UnexpectedEof, "could not load model (virtual FS)."));
-            };
+            vfs.add_from_buffer(filename, data)?;
 
             // Load the model from the virtual file system
-            raw_model = mj_loadModel(filename.as_ptr(), &raw_vfs);
-            mj_deleteVFS(&mut raw_vfs);
+            let raw_model = mj_loadModel(CString::new(filename).unwrap().as_ptr(), &vfs);
             Self::_check_raw_model(raw_model, &[])
         }
     }
@@ -487,37 +557,36 @@ pub struct MjDataViewActuator {
 }
 
 
-pub struct MjContext {
-    raw: mjrContext
-}
-
+pub type MjContext = mjrContext;
 impl MjContext {
     pub fn new(model: &MjModel) -> Self {
-        let mut context: mjrContext_ = mjrContext::default();
         unsafe {
-            mjr_defaultContext(&mut context);
-            mjr_makeContext(model.raw(), &mut context, mjtFontScale__mjFONTSCALE_100 as i32);
+            let mut c = MaybeUninit::uninit();
+            mjr_defaultContext(c.as_mut_ptr());
+            mjr_makeContext(model.raw(), c.as_mut_ptr(), mjtFontScale__mjFONTSCALE_100 as i32);
+            c.assume_init()
         }
-        Self {raw: context}
     }
 
-    pub fn from_raw(raw: mjrContext) -> Self {
-        Self {raw}
+    /// Set OpenGL framebuffer for rendering to mjFB_OFFSCREEN.
+    pub fn offscreen(&mut self) {
+        unsafe {
+            mjr_setBuffer(mjtFramebuffer__mjFB_OFFSCREEN as i32, self);
+        }
     }
 
-    pub unsafe fn raw(&self) -> *const mjrContext {
-        &self.raw
-    }
-
-    pub unsafe fn raw_mut(&mut self) -> *mut mjrContext {
-        &mut self.raw
+    /// Set OpenGL framebuffer for rendering to mjFB_WINDOW.
+    pub fn window(&mut self) {
+        unsafe {
+            mjr_setBuffer(mjtFramebuffer__mjFB_WINDOW as i32, self);
+        }
     }
 }
 
 impl Drop for MjContext {
     fn drop(&mut self) {
         unsafe {
-            mjr_freeContext(&mut self.raw);
+            mjr_freeContext(self);
         }
     }
 }

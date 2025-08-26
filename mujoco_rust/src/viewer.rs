@@ -42,9 +42,9 @@ impl MjViewer {
         let mut _glfw = glfw::init(glfw::fail_on_errors).unwrap();
 
         // Allocate on the heap as the data must not be moved due to C++ bindings
-        let mut _cam = Box::new(mujoco_c::mjvCamera::default());
-        let mut _opt: Box<mujoco_c::mjvOption_> = Box::new(mujoco_c::mjvOption::default());
-        let mut _pert = Box::new(mujoco_c::mjvPerturb::default());
+        let mut _cam = Box::new(MjvCamera::default());
+        let mut _opt: Box<mujoco_c::mjvOption_> = Box::new(MjvOption::default());
+        let mut _pert = Box::new(MjvPerturb::default());
         let mut _user_scn = Box::new(MjvScene::new(&model, scene_max_ngeom));
         let sim;
         unsafe {
