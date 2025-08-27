@@ -41,7 +41,8 @@ impl<T> PointerViewMut<T> {
     pub(crate) fn new(ptr: *mut T, len: usize) -> Self {
         Self {ptr, len}
     }
-    
+
+    #[allow(unused)]
     pub(crate) unsafe fn set_len(&mut self, len: usize) {
         self.len = len;
     }

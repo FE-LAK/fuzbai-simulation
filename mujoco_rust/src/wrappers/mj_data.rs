@@ -1,4 +1,3 @@
-use std::ops::{Deref, DerefMut};
 use std::marker::PhantomData;
 use std::ffi::CString;
 
@@ -26,18 +25,18 @@ impl<'a> MjData<'a> {
     pub(crate) fn new(model: &'a MjModel) -> Self {
         unsafe {
             Self {
-                data: mj_makeData(model.__raw()),
+                data: mj_makeData(model.ffi()),
                 model: model,
             }
         }
     }
 
-    /// Returns the raw wrapped value.
-    /// # SAFETY
-    /// Once returned, the Rust's compiler will lose track of this reference.
-    /// This is meant only for the compatibility with existing MuJoCo C++ code.
-    pub(crate) unsafe fn __raw(&self) -> *mut mjData {
-        self.data
+    pub(crate) fn ffi(&self) -> &mjData {
+        unsafe { self.data.as_ref().unwrap() }
+    }
+
+    pub(crate) fn ffi_mut(&self) -> &mut mjData {
+        unsafe { self.data.as_mut().unwrap() }
     }
 
     /// Returns a slice of detected contacts.
@@ -51,7 +50,7 @@ impl<'a> MjData<'a> {
     }
 
     pub fn joint(&self, name: &str) -> Option<MjJointInfo> {
-        let id = unsafe { mj_name2id(self.model.deref(), mjtObj__mjOBJ_JOINT as i32, CString::new(name).unwrap().as_ptr())};
+        let id = unsafe { mj_name2id(self.model.ffi(), mjtObj__mjOBJ_JOINT as i32, CString::new(name).unwrap().as_ptr())};
         if id == -1 {  // not found
             return None;
         }
@@ -62,14 +61,15 @@ impl<'a> MjData<'a> {
         let qacc;
         let qfrc_applied;
         let qfrc_bias;
+        let model_ffi = self.model.ffi();
         unsafe {
             // ptr:expr, $id:expr, $addr_map:expr, $njnt:expr, $max_n:expr
-            qpos = mj_slice_view!(self.qpos, id as usize, self.model.jnt_qposadr, self.model.njnt as usize, self.model.nq as usize);
-            qvel = mj_slice_view!(self.qvel, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
-            qacc_warmstart = mj_slice_view!(self.qacc_warmstart, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
-            qacc = mj_slice_view!(self.qacc, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
-            qfrc_applied = mj_slice_view!(self.qfrc_applied, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
-            qfrc_bias = mj_slice_view!(self.qfrc_bias, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
+            qpos = mj_slice_view!(self.qpos, id as usize, model_ffi.jnt_qposadr, model_ffi.njnt as usize, model_ffi.nq as usize);
+            qvel = mj_slice_view!(self.qvel, id as usize, model_ffi.jnt_dofadr, model_ffi.njnt as usize, model_ffi.nv as usize);
+            qacc_warmstart = mj_slice_view!(self.qacc_warmstart, id as usize, model_ffi.jnt_dofadr, model_ffi.njnt as usize, model_ffi.nv as usize);
+            qacc = mj_slice_view!(self.qacc, id as usize, model_ffi.jnt_dofadr, model_ffi.njnt as usize, model_ffi.nv as usize);
+            qfrc_applied = mj_slice_view!(self.qfrc_applied, id as usize, model_ffi.jnt_dofadr, model_ffi.njnt as usize, model_ffi.nv as usize);
+            qfrc_bias = mj_slice_view!(self.qfrc_bias, id as usize, model_ffi.jnt_dofadr, model_ffi.njnt as usize, model_ffi.nv as usize);
         }
 
         Some(MjJointInfo {name: name.to_string(), id: id as usize, qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias})
@@ -79,7 +79,7 @@ impl<'a> MjData<'a> {
         const GEOM_XPOS_LEN: usize = 3;
         const GEOM_XMAT_LEN: usize = 9;
 
-        let id = unsafe { mj_name2id(self.model.deref(), mjtObj__mjOBJ_GEOM as i32, CString::new(name).unwrap().as_ptr())};
+        let id = unsafe { mj_name2id(self.model.ffi(), mjtObj__mjOBJ_GEOM as i32, CString::new(name).unwrap().as_ptr())};
         if id == -1 {  // not found
             return None;
         }
@@ -90,16 +90,17 @@ impl<'a> MjData<'a> {
     }
 
     pub fn actuator(&self, name: &str) -> Option<MjActuatorInfo> {
-        let id = unsafe { mj_name2id(self.model.deref(), mjtObj__mjOBJ_ACTUATOR as i32, CString::new(name).unwrap().as_ptr())};
+        let id = unsafe { mj_name2id(self.model.ffi(), mjtObj__mjOBJ_ACTUATOR as i32, CString::new(name).unwrap().as_ptr())};
         if id == -1 {  // not found
             return None;
         }
 
         let ctrl;
         let act;
+        let model_ffi = self.model.ffi();
         unsafe {
             ctrl = (id as usize, 1);
-            act = mj_slice_view!(self.act, id as usize, self.model.actuator_actadr, self.model.nu as usize, self.model.na as usize);
+            act = mj_slice_view!(self.act, id as usize, model_ffi.actuator_actadr, model_ffi.nu as usize, model_ffi.na as usize);
         }
 
         Some(MjActuatorInfo { name: name.to_string(), id: id as usize, ctrl, act})
@@ -110,7 +111,7 @@ impl<'a> MjData<'a> {
     /// This calls the C binding of mj_step, which is not safe by itself.
     pub fn step(&mut self) {
         unsafe {
-            mj_step(self.model.deref(), self.data);
+            mj_step(self.model.ffi(), self.data);
         }
     }
 
@@ -119,7 +120,7 @@ impl<'a> MjData<'a> {
     /// This calls the C binding of mj_step1, which is not safe by itself.
     pub fn step1(&mut self) {
         unsafe {
-            mj_step1(self.model.deref(), self.data);
+            mj_step1(self.model.ffi(), self.data);
         }
     }
 
@@ -128,7 +129,7 @@ impl<'a> MjData<'a> {
     /// This calls the C binding of mj_step2, which is not safe by itself.
     pub fn step2(&mut self) {
         unsafe {
-            mj_step2(self.model.deref(), self.data);
+            mj_step2(self.model.ffi(), self.data);
         }
     }
 
@@ -137,7 +138,7 @@ impl<'a> MjData<'a> {
         let mut force = [0.0; 6];
         unsafe {
             mj_contactForce(
-                self.model.deref(), self.data,
+                self.model.ffi(), self.data,
                 contact_id as i32, force.as_mut_ptr()
             );
         }
@@ -154,24 +155,11 @@ impl Drop for MjData<'_> {
     }
 }
 
-impl Deref for MjData<'_> {
-    type Target = mjData;
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.data.as_ref().unwrap() }
-    }
-}
-
-impl DerefMut for MjData<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.data.as_mut().unwrap() }
-    }
-}
-
 
 /// Creates a $view struct, mapping $field and $opt_field to the same location as in $data.
 macro_rules! view_creator {
     // Mutable
-    ($self:ident, $view:ident, $data:ident, [$($field:ident),*], [$($opt_field:ident),*], true) => {
+    ($self:expr, $view:ident, $data:expr, [$($field:ident),*], [$($opt_field:ident),*], true) => {
         unsafe {
             $view {
                 $(
@@ -188,7 +176,7 @@ macro_rules! view_creator {
     };
 
     // Non-mutable
-    ($self:ident, $view:ident, $data:ident, [$($field:ident),*], [$($opt_field:ident),*], false) => {
+    ($self:expr, $view:ident, $data:expr, [$($field:ident),*], [$($opt_field:ident),*], false) => {
         unsafe {
             $view {
                 $(
@@ -225,11 +213,11 @@ pub struct MjJointInfo{
 
 impl MjJointInfo {
     pub fn view_mut<'d>(&mut self, data: &'d mut MjData) -> MjJointViewMut<'d, '_> {
-        view_creator!(self, MjJointViewMut, data, [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [], true)
+        view_creator!(self, MjJointViewMut, data.ffi_mut(), [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [], true)
     }
 
     pub fn view<'d>(&self, data: &'d MjData) -> MjJointView<'d, '_> {
-        view_creator!(self, MjJointView, data, [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [], false)
+        view_creator!(self, MjJointView, data.ffi(), [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [], false)
     }
 }
 
@@ -281,11 +269,11 @@ pub struct MjGeomInfo {
 
 impl MjGeomInfo {
     pub fn view_mut<'d>(&mut self, data: &'d mut MjData) -> MjGeomViewMut<'d, '_> {
-        view_creator!(self, MjGeomViewMut, data, [xmat, xpos], [], true)
+        view_creator!(self, MjGeomViewMut, data.ffi_mut(), [xmat, xpos], [], true)
     }
 
     pub fn view<'d>(&self, data: &'d MjData) -> MjGeomView<'d, '_> {
-        view_creator!(self, MjGeomView, data, [xmat, xpos], [], false)
+        view_creator!(self, MjGeomView, data.ffi(), [xmat, xpos], [], false)
     }
 }
 
@@ -317,11 +305,11 @@ pub struct MjActuatorInfo {
 
 impl MjActuatorInfo {
     pub fn view_mut<'d>(&mut self, data: &'d mut MjData) -> MjActuatorViewMut<'d, '_> {
-        view_creator!(self, MjActuatorViewMut, data, [ctrl], [act], true)
+        view_creator!(self, MjActuatorViewMut, data.ffi_mut(), [ctrl], [act], true)
     }
 
     pub fn view<'d>(&self, data: &'d MjData) -> MjActuatorView<'d, '_> {
-        view_creator!(self, MjActuatorView, data, [ctrl], [act], false)
+        view_creator!(self, MjActuatorView, data.ffi(), [ctrl], [act], false)
     }
 }
 

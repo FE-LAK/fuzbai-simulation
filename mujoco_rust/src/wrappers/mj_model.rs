@@ -1,7 +1,6 @@
 //! Module for mjModel
 use std::io::{Error, ErrorKind};
 use std::ffi::{c_int, CString};
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::ptr;
 
@@ -44,7 +43,7 @@ impl MjModel {
             vfs.add_from_buffer(filename, data)?;
 
             // Load the model from the virtual file system
-            let raw_model = mj_loadModel(CString::new(filename).unwrap().as_ptr(), &vfs);
+            let raw_model = mj_loadModel(CString::new(filename).unwrap().as_ptr(), vfs.ffi());
             Self::check_raw_model(raw_model, &[])
         }
     }
@@ -70,9 +69,19 @@ impl MjModel {
     }
 
     /// Returns the raw wrapped value.
-    /// # SAFETY
-    /// Once returned, the Rust's compiler will lose track of this reference.
-    /// This is meant only for the compatibility with existing MuJoCo C++ code.
+    pub(crate) fn ffi(&self) -> &mjModel {
+        unsafe { self.0.as_ref().unwrap() }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn ffi_mut(&mut self) -> &mut mjModel {
+        unsafe { self.0.as_mut().unwrap() }
+    }
+
+    /// Returns a direct pointer to the underlying model.
+    /// THIS IS NOT TO BE USED.
+    /// It is only meant for the viewer code, which currently still depends
+    /// on mutable pointers to model and data. This will be removed in the future.
     pub(crate) unsafe fn __raw(&self) -> *mut mjModel {
         self.0
     }
@@ -83,18 +92,5 @@ impl Drop for MjModel {
         unsafe {
             mj_deleteModel(self.0);
         }
-    }
-}
-
-impl Deref for MjModel {
-    type Target = mjModel;
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref().unwrap() }
-    }
-}
-
-impl DerefMut for MjModel {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut().unwrap() }
     }
 }
