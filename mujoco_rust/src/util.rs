@@ -73,3 +73,47 @@ impl<T> DerefMut for PointerViewMut<T> {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
+
+/// Provides a more direct view to a C array.
+/// # Safety
+/// This does not check if the data is valid. It is assumed
+/// the correct data is given and that it doesn't get dropped before this struct.
+/// This does not break Rust's checks as we create the view each
+/// time from the saved pointers.
+/// This should ONLY be used within a wrapper who fully encapsulates the underlying data.
+#[derive(Debug)]
+pub struct PointerView<T> {
+    ptr: *const T,
+    len: usize,
+}
+
+
+impl<T> PointerView<T> {
+    pub(crate) fn new(ptr: *const T, len: usize) -> Self {
+        Self {ptr, len}
+    }
+    
+    pub(crate) unsafe fn set_len(&mut self, len: usize) {
+        self.len = len;
+    }
+}
+
+// Allow usage in threaded contexts as the data won't be shared anywhere outside Rust,
+// except during mj_step.
+unsafe impl<T> Send for PointerView<T> {}
+unsafe impl<T> Sync for PointerView<T> {}
+
+
+/// Compares if the two views point to the same data.
+impl<T> PartialEq for PointerView<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ptr == other.ptr  // if the pointer differs, this isn't a view to the same data
+    }
+}
+
+impl<T> Deref for PointerView<T> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}

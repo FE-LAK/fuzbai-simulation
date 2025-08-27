@@ -179,13 +179,13 @@ pub struct FuzbAISimulator {
     /// View to the ball's joint data of mj_data.
     /// # SAFETY
     /// This needs to be dropped before mj_data.
-    mj_data_joint_ball: MjDataViewJoint,
+    mj_data_joint_ball: MjJointInfo,
 
     /// View to the ball's damping actuator.
     /// # SAFETY
     /// These need to be dropped before mj_data.
-    mj_data_act_ball_damp_x: MjDataViewActuator,
-    mj_data_act_ball_damp_y: MjDataViewActuator,
+    mj_data_act_ball_damp_x: MjActuatorInfo,
+    mj_data_act_ball_damp_y: MjActuatorInfo,
 
     /* Contact detection */
     mj_red_goal_geom_ids: [i32; 2],
@@ -256,11 +256,11 @@ impl FuzbAISimulator {
         }
 
         // Create views to MjData
-        let mj_data_joint_ball: MjDataViewJoint = mj_data.joint("ball").unwrap();
-        let mj_data_joint_rod_trans: [MjDataViewJoint; 8] = std::array::from_fn(|i| mj_data.joint(&format!("p{}_slide", i+1)).unwrap());
-        let mj_data_joint_rod_rot: [MjDataViewJoint; 8] = std::array::from_fn(|i| mj_data.joint(&format!("p{}_revolute", i+1)).unwrap());
-        let mj_data_act_rod_trans: [MjDataViewActuator; 8] = std::array::from_fn(|i| mj_data.actuator(&format!("p{}_slide_ctrl", i+1)).unwrap());
-        let mj_data_act_rod_rot: [MjDataViewActuator; 8] = std::array::from_fn(|i| mj_data.actuator(&format!("p{}_revolute_ctrl", i+1)).unwrap());
+        let mj_data_joint_ball = mj_data.joint("ball").unwrap();
+        let mj_data_joint_rod_trans = std::array::from_fn(|i| mj_data.joint(&format!("p{}_slide", i+1)).unwrap());
+        let mj_data_joint_rod_rot = std::array::from_fn(|i| mj_data.joint(&format!("p{}_revolute", i+1)).unwrap());
+        let mj_data_act_rod_trans = std::array::from_fn(|i| mj_data.actuator(&format!("p{}_slide_ctrl", i+1)).unwrap());
+        let mj_data_act_rod_rot= std::array::from_fn(|i| mj_data.actuator(&format!("p{}_revolute_ctrl", i+1)).unwrap());
 
         // Find geom IDs of the individual goals. This is used for detecting scored goals.
         let mj_red_goal_geom_ids = [
@@ -389,8 +389,9 @@ impl FuzbAISimulator {
     /// Returns the ball's TRUE state (without noise) in the format
     /// (x, y, z, vx, vy)
     pub fn ball_true_state(&self) -> [f64; 6] {
-        let [x, y, z, ..] = *self.mj_data_joint_ball.qpos else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
-        let [vx, vy, vz, ..] = *self.mj_data_joint_ball.qvel else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
+        let ball_view = self.mj_data_joint_ball.view(&self.mj_data);
+        let [x, y, z, ..] = *ball_view.qpos else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
+        let [vx, vy, vz, ..] = *ball_view.qvel else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
 
         [1000.0 * x - 115.0, 727.0 - 1000.0 * y, 1000.0 * z, vx, -vy, vz]
     }
@@ -401,10 +402,10 @@ impl FuzbAISimulator {
         let mut rod_trans_vel = [0.0; 8];
         let mut rod_rot_vel = [0.0; 8];
         for i in 0..8 {
-            rod_trans[i] = 1.0 - self.trans_motor_ctrl.qpos(i) / ROD_TRAVELS[i];
-            rod_trans_vel[i] = -self.trans_motor_ctrl.qvel(i);
-            rod_rot[i] = self.rot_motor_ctrl.qpos(i) / std::f64::consts::PI * 32.0;
-            rod_rot_vel[i] = self.rot_motor_ctrl.qvel(i);
+            rod_trans[i] = 1.0 - self.trans_motor_ctrl.qpos(&self.mj_data, i) / ROD_TRAVELS[i];
+            rod_trans_vel[i] = -self.trans_motor_ctrl.qvel(&self.mj_data, i);
+            rod_rot[i] = self.rot_motor_ctrl.qpos(&self.mj_data, i) / std::f64::consts::PI * 32.0;
+            rod_rot_vel[i] = self.rot_motor_ctrl.qvel(&self.mj_data, i);
         }
 
         (rod_trans, rod_rot, rod_trans_vel, rod_rot_vel)
@@ -458,8 +459,8 @@ impl FuzbAISimulator {
 
     #[inline]
     pub fn set_ball_damping(&mut self, damping: XYType) {
-        self.mj_data_act_ball_damp_x.ctrl[0] = damping[0];
-        self.mj_data_act_ball_damp_y.ctrl[0] = damping[1];
+        self.mj_data_act_ball_damp_x.view_mut(&mut self.mj_data).ctrl[0] = damping[0];
+        self.mj_data_act_ball_damp_y.view_mut(&mut self.mj_data).ctrl[0] = damping[1];
     }
 
     /// Sets the joint state of individual rod to `positions` and `rotations`.
@@ -472,8 +473,8 @@ impl FuzbAISimulator {
         if let Some(positions) = positions {
             for i in 0..8 {
                 pos = (1.0 - positions[i]) * ROD_TRAVELS[i];
-                self.trans_motor_ctrl.set_qpos(i, pos);
-                self.trans_motor_ctrl.force_stop(i);
+                self.trans_motor_ctrl.set_qpos(&mut self.mj_data, i, pos);
+                self.trans_motor_ctrl.force_stop(i, &mut self.mj_data);
             }
         }
 
@@ -481,8 +482,8 @@ impl FuzbAISimulator {
         if let Some(rotations) = rotations {
             for i in 0..8 {
                 pos = rotations[i] * 2.0 * std::f64::consts::PI;
-                self.rot_motor_ctrl.set_qpos(i, pos);
-                self.rot_motor_ctrl.force_stop(i);
+                self.rot_motor_ctrl.set_qpos(&mut self.mj_data, i, pos);
+                self.rot_motor_ctrl.force_stop(i, &mut self.mj_data);
             }
         }
 
@@ -533,43 +534,45 @@ impl FuzbAISimulator {
 
     /// Servers the ball to a given `position`.
     pub fn serve_ball(&mut self, position: Option<XYZType>) {
+        let mut ball_view = self.mj_data_joint_ball.view_mut(&mut self.mj_data);
         let position = if let Some(xyz) = position {
             Self::local_to_global_position(xyz)
         }
         else {
             DEFAULT_BALL_POSITION
         };
-        self.mj_data_joint_ball.qpos[..3].copy_from_slice(&position);
-        self.mj_data_joint_ball.qpos[3..].copy_from_slice(&[1.0, 0.0, 0.0, 0.0]); // 0 rotation
+        ball_view.qpos[..3].copy_from_slice(&position);
+        ball_view.qpos[3..].copy_from_slice(&[1.0, 0.0, 0.0, 0.0]); // 0 rotation
     }
 
     pub fn nudge_ball(&mut self, velocity: Option<XYZType>) {
+        let mut ball_view = self.mj_data_joint_ball.view_mut(&mut self.mj_data);
         if let Some(v) = velocity {
-            self.mj_data_joint_ball.qvel[..3].copy_from_slice(&Self::local_to_global_velocity(v));
+            ball_view.qvel[..3].copy_from_slice(&Self::local_to_global_velocity(v));
         }
         else {
             let mut rng = rand::rng();
             let mut dist;
             for i in 0..DEFAULT_BALL_NUDGE_VELOCITY_SCALE.len() {
                 if DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i] == 0.0 {
-                    self.mj_data_joint_ball.qvel[i] = 0.0;
+                    ball_view.qvel[i] = 0.0;
                     continue;
                 }
 
                 dist = Uniform::new(-DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i], DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i]).unwrap();
-                self.mj_data_joint_ball.qvel[i] = dist.sample(&mut rng);
+                ball_view.qvel[i] = dist.sample(&mut rng);
             }
         }
 
         // Match the rotational velocity to achieve spinning (w = v / r)
-        self.mj_data_joint_ball.qvel[3] = -self.mj_data_joint_ball.qvel[1] / BALL_RADIUS_M;
-        self.mj_data_joint_ball.qvel[4] =  self.mj_data_joint_ball.qvel[0] / BALL_RADIUS_M;
-        self.mj_data_joint_ball.qvel[5] =  0.0;
+        ball_view.qvel[3] = -ball_view.qvel[1] / BALL_RADIUS_M;
+        ball_view.qvel[4] =  ball_view.qvel[0] / BALL_RADIUS_M;
+        ball_view.qvel[5] =  0.0;
 
         // Reset other states
-        self.mj_data_joint_ball.qacc_warmstart.fill(0.0);
-        self.mj_data_joint_ball.qacc.fill(0.0);
-        self.mj_data_joint_ball.qfrc_applied.fill(0.0);
+        ball_view.qacc_warmstart.fill(0.0);
+        ball_view.qacc.fill(0.0);
+        ball_view.qfrc_applied.fill(0.0);
     }
 
     /// Clears the score to [0-0];
@@ -661,7 +664,7 @@ impl FuzbAISimulator {
         self.delayed_memory.clear();
         self.clear_trace();
 
-        self.mj_data_joint_ball.reset();
+        self.mj_data_joint_ball.view_mut(&mut self.mj_data).reset();
         self.serve_ball(None);
         self.nudge_ball(None);
         self.mj_data.step1();
@@ -674,8 +677,8 @@ impl FuzbAISimulator {
         for _ in 0..self.internal_step_factor {
             let t_start = Instant::now();
             // Position tracking -> torque
-            self.trans_motor_ctrl.step();
-            self.rot_motor_ctrl.step();
+            self.trans_motor_ctrl.step(&mut self.mj_data);
+            self.rot_motor_ctrl.step(&mut self.mj_data);
             // self.trans_motor_ctrl.check_reference();  // force-stop when reference is set close to the current position
             self.mj_data.step2();
             self.mj_data.step1();
@@ -732,8 +735,9 @@ impl FuzbAISimulator {
         }
 
         // Truncation
-        let ball_global_pos = &*self.mj_data_joint_ball.qpos;
-        let ball_global_vel = &*self.mj_data_joint_ball.qvel;
+        let ball_joint_view = self.mj_data_joint_ball.view(&self.mj_data);
+        let ball_global_pos = ball_joint_view.qpos.as_ref();
+        let ball_global_vel = ball_joint_view.qvel.as_ref();
         if ball_global_pos[2] < TRUNCATION_Z_LEVEL {
             self.term = true;
         }
@@ -822,7 +826,7 @@ impl FuzbAISimulator {
         // Store trace. This is done regardless of the viewier's existence
         // to support screenshots outside an active viewer.
         if self.visual_config.trace_length > 0 {
-            let xpos = &self.mj_data_joint_ball.qpos[..3];
+            let xpos = &self.mj_data_joint_ball.view(&self.mj_data).qpos[..3];
             let (rod_trans, rod_rot, ..) = self.rods_true_state();
             let trace_state: TraceType = (
                 std::array::from_fn(|idx| xpos[idx]),

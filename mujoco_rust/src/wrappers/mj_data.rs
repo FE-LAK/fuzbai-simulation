@@ -6,7 +6,7 @@ use super::mj_auxilary::MjContact;
 use super::mj_model::MjModel;
 use crate::mujoco_c::*;
 
-use crate::util::PointerViewMut;
+use crate::util::{PointerViewMut, PointerView};
 use crate::mj_slice_view;
 
 
@@ -171,7 +171,8 @@ impl DerefMut for MjData<'_> {
 
 
 macro_rules! view_creator {
-    ($self:ident, $view:ident, $data:ident, [$($field:ident),*], [$($opt_field:ident),*]) => {
+    // Mutable
+    ($self:ident, $view:ident, $data:ident, [$($field:ident),*], [$($opt_field:ident),*], true) => {
         unsafe {
             $view {
                 $(
@@ -180,6 +181,23 @@ macro_rules! view_creator {
                 $(
                     $opt_field: if $self.$opt_field.1 > 0 {
                         Some(PointerViewMut::new($data.$opt_field.add($self.$opt_field.0), $self.$opt_field.1))
+                    } else {None},
+                )*
+                phantom: PhantomData,
+            }
+        }
+    };
+
+    // Non-mutable
+    ($self:ident, $view:ident, $data:ident, [$($field:ident),*], [$($opt_field:ident),*], false) => {
+        unsafe {
+            $view {
+                $(
+                    $field: PointerView::new($data.$field.add($self.$field.0), $self.$field.1),
+                )*
+                $(
+                    $opt_field: if $self.$opt_field.1 > 0 {
+                        Some(PointerView::new($data.$opt_field.add($self.$opt_field.0), $self.$opt_field.1))
                     } else {None},
                 )*
                 phantom: PhantomData,
@@ -207,8 +225,12 @@ pub struct MjJointInfo{
 }
 
 impl MjJointInfo {
-    pub fn view_mut<'d>(&self, data: &'d mut MjData) -> MjJointViewMut<'d, '_> {
-        view_creator!(self, MjJointViewMut, data, [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [])
+    pub fn view_mut<'d>(&mut self, data: &'d mut MjData) -> MjJointViewMut<'d, '_> {
+        view_creator!(self, MjJointViewMut, data, [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [], true)
+    }
+
+    pub fn view<'d>(&self, data: &'d MjData) -> MjJointView<'d, '_> {
+        view_creator!(self, MjJointView, data, [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [], false)
     }
 }
 
@@ -234,6 +256,17 @@ impl MjJointViewMut<'_, '_> {
 }
 
 
+pub struct MjJointView<'d, 'm: 'd> {
+    pub qpos: PointerView<f64>,
+    pub qvel: PointerView<f64>,
+    pub qacc_warmstart: PointerView<f64>,
+    pub qacc: PointerView<f64>,
+    pub qfrc_applied: PointerView<f64>,
+    pub qfrc_bias: PointerView<f64>,
+    phantom: PhantomData<&'d MjData<'m>>
+}
+
+
 /// A MjDataViewX which shows a slice of the geom.
 /// # SAFETY
 /// This is not thread-safe nor lifetime-safe.
@@ -248,14 +281,24 @@ pub struct MjGeomInfo {
 }
 
 impl MjGeomInfo {
-    pub fn view_mut<'d>(&self, data: &'d mut MjData) -> MjGeomViewMut<'d, '_> {
-        view_creator!(self, MjGeomViewMut, data, [xmat, xpos], [])
+    pub fn view_mut<'d>(&mut self, data: &'d mut MjData) -> MjGeomViewMut<'d, '_> {
+        view_creator!(self, MjGeomViewMut, data, [xmat, xpos], [], true)
+    }
+
+    pub fn view<'d>(&self, data: &'d MjData) -> MjGeomView<'d, '_> {
+        view_creator!(self, MjGeomView, data, [xmat, xpos], [], false)
     }
 }
 
 pub struct MjGeomViewMut<'d, 'm: 'd> {
     pub xmat: PointerViewMut<f64>,
     pub xpos: PointerViewMut<f64>,
+    phantom: PhantomData<&'d MjData<'m>>
+}
+
+pub struct MjGeomView<'d, 'm: 'd> {
+    pub xmat: PointerView<f64>,
+    pub xpos: PointerView<f64>,
     phantom: PhantomData<&'d MjData<'m>>
 }
 
@@ -274,13 +317,23 @@ pub struct MjActuatorInfo {
 }
 
 impl MjActuatorInfo {
-    fn view_mut<'d>(&self, data: &'d mut MjData) -> MjActuatorViewMut<'d, '_> {
-        view_creator!(self, MjActuatorViewMut, data, [ctrl], [act])
+    pub fn view_mut<'d>(&mut self, data: &'d mut MjData) -> MjActuatorViewMut<'d, '_> {
+        view_creator!(self, MjActuatorViewMut, data, [ctrl], [act], true)
+    }
+
+    pub fn view<'d>(&self, data: &'d MjData) -> MjActuatorView<'d, '_> {
+        view_creator!(self, MjActuatorView, data, [ctrl], [act], false)
     }
 }
 
 pub struct MjActuatorViewMut<'d, 'm: 'd> {
     pub ctrl: PointerViewMut<f64>,
     pub act: Option<PointerViewMut<f64>>,
+    phantom: PhantomData<&'d MjData<'m>>
+}
+
+pub struct MjActuatorView<'d, 'm: 'd> {
+    pub ctrl: PointerView<f64>,
+    pub act: Option<PointerView<f64>>,
     phantom: PhantomData<&'d MjData<'m>>
 }
