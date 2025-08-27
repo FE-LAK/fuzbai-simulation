@@ -37,7 +37,6 @@ pub struct PointerViewMut<T> {
     len: usize,
 }
 
-
 impl<T> PointerViewMut<T> {
     pub(crate) fn new(ptr: *mut T, len: usize) -> Self {
         Self {ptr, len}
@@ -47,12 +46,6 @@ impl<T> PointerViewMut<T> {
         self.len = len;
     }
 }
-
-// Allow usage in threaded contexts as the data won't be shared anywhere outside Rust,
-// except during mj_step.
-unsafe impl<T> Send for PointerViewMut<T> {}
-unsafe impl<T> Sync for PointerViewMut<T> {}
-
 
 /// Compares if the two views point to the same data.
 impl<T> PartialEq for PointerViewMut<T> {
@@ -87,22 +80,16 @@ pub struct PointerView<T> {
     len: usize,
 }
 
-
 impl<T> PointerView<T> {
     pub(crate) fn new(ptr: *const T, len: usize) -> Self {
         Self {ptr, len}
     }
     
+    #[allow(unused)]
     pub(crate) unsafe fn set_len(&mut self, len: usize) {
         self.len = len;
     }
 }
-
-// Allow usage in threaded contexts as the data won't be shared anywhere outside Rust,
-// except during mj_step.
-unsafe impl<T> Send for PointerView<T> {}
-unsafe impl<T> Sync for PointerView<T> {}
-
 
 /// Compares if the two views point to the same data.
 impl<T> PartialEq for PointerView<T> {

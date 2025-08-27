@@ -46,9 +46,7 @@ impl<'a> MjData<'a> {
     /// The returned slice must ne dropped before [`MjData`].
     pub fn contacts(&self) -> &[MjContact] {
         unsafe {
-            let ll = self.data.as_ref().unwrap();
-            let n_contacts = ll.ncon as usize;
-            std::slice::from_raw_parts(ll.contact, n_contacts)
+            std::slice::from_raw_parts((*self.data).contact, (*self.data).ncon as usize)
         }
     }
 
@@ -170,6 +168,7 @@ impl DerefMut for MjData<'_> {
 }
 
 
+/// Creates a $view struct, mapping $field and $opt_field to the same location as in $data.
 macro_rules! view_creator {
     // Mutable
     ($self:ident, $view:ident, $data:ident, [$($field:ident),*], [$($opt_field:ident),*], true) => {

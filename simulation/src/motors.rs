@@ -25,11 +25,19 @@ pub(crate) struct TrapezoidMotorSystem {
 }
 
 impl TrapezoidMotorSystem {
-    pub fn new(kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8], stop_threshold: f64, dead_band: [f64; 8], joint_view: [MjJointInfo; 8], actuator_view: [MjActuatorInfo; 8]) -> Self {
+    pub fn new(
+        kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8],
+        stop_threshold: f64, dead_band: [f64; 8],
+        joint_info: [MjJointInfo; 8],
+        actuator_info: [MjActuatorInfo; 8]
+    ) -> Self {
         let target_velocity: [f64; 8] = [0.0; 8];
         let target_pos = [0.0; 8];
         let direction = [0.0; 8];
-        Self {kp, kd, max_velocity, max_acceleration, joint_info: joint_view, actuator_info: actuator_view, target_velocity, target_pos, direction, stop_threshold, dead_band}
+        Self {
+            kp, kd, max_velocity, max_acceleration, joint_info, actuator_info,
+            target_velocity, target_pos, direction, stop_threshold, dead_band
+        }
     }
 
     pub fn set_params(&mut self, act_id: usize, kp: f64, kd: f64, max_vel: f64, max_acc: f64) {
@@ -63,11 +71,13 @@ impl TrapezoidMotorSystem {
             self.target_velocity[act_id] = self.target_velocity[act_id].clamp(-self.max_velocity[act_id], self.max_velocity[act_id]);
             let vel_error: f64 = self.target_velocity[act_id] - qvel;
             let tanh_arg = (pos_error * 3.0 / self.stop_threshold).abs();
+
+            // performance tuning
             let scale = if tanh_arg < 3.0 {
                 f64::tanh(tanh_arg).powf(0.5)
             } else {
                 1.0
-            };  // performance tuning
+            };
 
             let mut act_view = self.actuator_info[act_id].view_mut(data);
             act_view.ctrl[0] = scale * self.kp[act_id] * vel_error - self.kd[act_id] * qvel + grav_comp;
@@ -92,6 +102,7 @@ impl TrapezoidMotorSystem {
     }
 
     #[inline]
+    #[allow(unused)]
     pub fn set_qvel(&mut self, data: &mut MjData, act_id: usize, value: f64) {
         self.joint_info[act_id].view_mut(data).qvel[0] = value;
     }

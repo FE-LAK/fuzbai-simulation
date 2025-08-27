@@ -26,8 +26,22 @@ pub mod motors;
 pub mod types;
 
 
+/* Globals */
 /// Compiled MuJoCo model. Useful when compiling as a Python wheel or a Rust crate.
 const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
+
+/// Global MjModel instance shared across multiple FuzbAI simulators.
+/// This has the benefit of consuming less memory (as the model is fixed).
+/// It is also required due to PyO3's aggressive checks for thread-safety and
+/// prohibition of Rust's lifetimes.
+pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
+
+thread_local! {
+    /// Multiple viewers are not allowed (unless in a different process).
+    /// This is a protection mechanism from accidentally launching multiple realtime
+    /// simulations.
+    pub static G_MJ_VIEWER: RefCell<Option<MjViewer<'static>>> = RefCell::new(None);
+}
 
 
 /* Enum definitions */
@@ -103,22 +117,6 @@ impl VisualConfig {
     }
 }
 
-
-/* Globals */
-/// Global MjModel instance shared across multiple FuzbAI simulators.
-/// This has the benefit of consuming less memory (as the model is fixed).
-/// It is also required due to PyO3's aggressive checks for thread-safety and
-/// prohibition of Rust's lifetimes.
-pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
-
-
-thread_local! {
-    /// Multiple viewers are not allowed (unless in a different process).
-    /// This is a protection mechanism from accidentally launching multiple realtime
-    /// simulations.
-    pub static G_MJ_VIEWER: RefCell<Option<MjViewer<'static>>> = RefCell::new(None);
-}
-
 /// High level simulation wrapping the MuJoCo physical
 /// simulation of the table football.
 /// # SAFETY
@@ -171,7 +169,7 @@ pub struct FuzbAISimulator {
     /// Simulation state struct.
     /// # SAFETY
     /// DO NOT SHARE BETWEEN THREADS OR FREE THE RAW DATA.
-    /// This is not meant to be used in multiple threads and is thus UNSAFE.
+    /// This is not meant to be used in multiple threads and is thus .
     /// Additionally, due to interaction with C code, special care must be taken into
     /// account.
     mj_data: MjData<'static>,
