@@ -2,7 +2,7 @@
 use std::ops::{Deref, DerefMut};
 
 
-/// Creates a [`PointerView`] instance based on the pointer (`ptr`) and other
+/// Creates a [`PointerViewMut`] instance based on the pointer (`ptr`) and other
 /// lookup variables that define the mapping in MuJoCo's mjModel struct.
 #[macro_export]
 macro_rules! mj_slice_view {
@@ -16,7 +16,7 @@ macro_rules! mj_slice_view {
             {
                 let end_addr = if $id + 1 < $njnt {*$addr_map.add($id + 1) as usize} else {$max_n};
                 let n = end_addr - start_addr as usize;
-                Some(PointerView::new($ptr.add(start_addr as usize), n))
+                Some(PointerViewMut::new($ptr.add(start_addr as usize), n))
             }
         }
     };
@@ -30,38 +30,43 @@ macro_rules! mj_slice_view {
 /// This does not break Rust's checks as we create the view each
 /// time from the saved pointers
 #[derive(Debug)]
-pub struct PointerView<T> {
+pub struct PointerViewMut<T> {
     ptr: *mut T,
     len: usize,
 }
 
+
+impl<T> PointerViewMut<T> {
+    pub(crate) fn new(ptr: *mut T, len: usize) -> Self {
+        Self {ptr, len}
+    }
+    
+    pub(crate) unsafe fn set_len(&mut self, len: usize) {
+        self.len = len;
+    }
+}
+
 // Allow usage in threaded contexts as the data won't be shared anywhere outside Rust,
 // except during mj_step.
-unsafe impl<T> Send for PointerView<T> {}
-unsafe impl<T> Sync for PointerView<T> {}
+unsafe impl<T> Send for PointerViewMut<T> {}
+unsafe impl<T> Sync for PointerViewMut<T> {}
 
 
 /// Compares if the two views point to the same data.
-impl<T> PartialEq for PointerView<T> {
+impl<T> PartialEq for PointerViewMut<T> {
     fn eq(&self, other: &Self) -> bool {
         self.ptr == other.ptr  // if the pointer differs, this isn't a view to the same data
     }
 }
 
-impl<T> PointerView<T> {
-    pub fn new(ptr: *mut T, len: usize) -> Self {
-        Self {ptr, len}
-    }
-}
-
-impl<T> Deref for PointerView<T> {
+impl<T> Deref for PointerViewMut<T> {
     type Target = [T];
     fn deref(&self) -> &Self::Target {
         unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
-impl<T> DerefMut for PointerView<T> {
+impl<T> DerefMut for PointerViewMut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
     }

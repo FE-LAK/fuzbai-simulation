@@ -11,7 +11,7 @@ use crate::wrappers::mj_data::MjData;
 /// Due to performance reasons and PyO3, this must be destroyed before
 /// [`MjData`] and [`MjModel`] instances that are passed in the constructor.
 /// Normally, we would include references to them but it's very inconvenient.
-pub struct MjViewer {
+pub struct MjViewer<'m> {
     sim: *mut mujoco_Simulate,
     running: bool,
 
@@ -20,25 +20,25 @@ pub struct MjViewer {
     _cam: Box<MjvCamera>,
     _opt: Box<MjvOption>,
     _pert: Box<MjvPerturb>,
-    _user_scn: Box<MjvScene>,
+    _user_scn: Box<MjvScene<'m>>,
     _glfw: glfw::Glfw
 }
 
 
 
 
-impl MjViewer {
+impl<'m> MjViewer<'m> {
     #[inline]
     pub fn running(&self) -> bool {
         self.running
     }
 
     #[inline]
-    pub fn user_scn_mut(&mut self) -> &mut MjvScene {
+    pub fn user_scn_mut(&mut self) -> &mut MjvScene<'m> {
         &mut self._user_scn
     }
 
-    pub fn launch_passive(model: &MjModel, data: &MjData, scene_max_ngeom: usize) -> Self {
+    pub fn launch_passive(model: &'m MjModel, data: &MjData, scene_max_ngeom: usize) -> Self {
         let mut _glfw = glfw::init(glfw::fail_on_errors).unwrap();
 
         // Allocate on the heap as the data must not be moved due to C++ bindings
@@ -48,7 +48,7 @@ impl MjViewer {
         let mut _user_scn = Box::new(MjvScene::new(&model, scene_max_ngeom));
         let sim;
         unsafe {
-            sim = new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, &mut *_user_scn, true);
+            sim = new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, &mut **_user_scn, true);
             (*sim).RenderInit();
             (*sim).Load(model.__raw(), data.__raw(), CString::new("file.xml").unwrap().as_ptr());
             (*sim).RenderStep(true);
@@ -83,7 +83,7 @@ impl MjViewer {
 }
 
 
-impl Drop for MjViewer {
+impl Drop for MjViewer<'_> {
     fn drop(&mut self) {
         unsafe {
             (*self.sim).RenderCleanup();

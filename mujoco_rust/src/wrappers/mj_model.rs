@@ -5,6 +5,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::ptr;
 
+use crate::wrappers::mj_data::MjData;
 use super::mj_auxilary::MjVfs;
 use crate::mujoco_c::*;
 
@@ -52,6 +53,10 @@ impl MjModel {
         unsafe {
             mj_name2id(self.0, type_, CString::new(name).unwrap().as_ptr())
         }
+    }
+
+    pub fn make_data(&self) -> MjData {
+        MjData::new(self)
     }
 
     fn check_raw_model(ptr_model: *mut mjModel, error_buffer: &[i8]) -> Result<MjModel, Error> {

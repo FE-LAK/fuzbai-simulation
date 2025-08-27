@@ -116,7 +116,7 @@ thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
-    pub static G_MJ_VIEWER: RefCell<Option<MjViewer>> = RefCell::new(None);
+    pub static G_MJ_VIEWER: RefCell<Option<MjViewer<'static>>> = RefCell::new(None);
 }
 
 /// High level simulation wrapping the MuJoCo physical
@@ -203,7 +203,7 @@ pub struct FuzbAISimulator {
     rot_motor_ctrl: TrapezoidMotorSystem,
 
     /* Visualization */
-    renderer: Option<Render>,
+    renderer: Option<Render<'static>>,
     visualizer: Visualizer
 }
 
@@ -233,7 +233,7 @@ impl FuzbAISimulator {
             .expect("could not load the MuJoCo model")
         });
 
-        let mut mj_data = MjData::new(model);
+        let mut mj_data = model.make_data();
         // Make sure we have forward kinematics calculated before doing any stepping (in case reset will not be called).
         // In the step_simulation method we call step2 first and step1 after to prevent non-state attributes of MjData
         // from lagging behind one low-level step.

@@ -5,7 +5,7 @@ use super::mj_auxilary::MjContact;
 use super::mj_model::MjModel;
 use crate::mujoco_c::*;
 
-use crate::util::PointerView;
+use crate::util::PointerViewMut;
 use crate::mj_slice_view;
 
 
@@ -21,11 +21,12 @@ unsafe impl Sync for MjData<'_> {}
 
 
 impl<'a> MjData<'a> {
-    pub fn new(model: &'a MjModel) -> Self {
+    /// Constructor for a new MjData. This should is called from MjModel.
+    pub(crate) fn new(model: &'a MjModel) -> Self {
         unsafe {
             Self {
-                data: mj_makeData(model.deref()),
-                model: model
+                data: mj_makeData(model.__raw()),
+                model: model,
             }
         }
     }
@@ -50,10 +51,6 @@ impl<'a> MjData<'a> {
         }
     }
 
-    pub fn model(&self) -> &MjModel {
-        self.model
-    }
- 
     pub fn joint(&self, name: &str) -> Option<MjDataViewJoint> {
         let id = unsafe { mj_name2id(self.model.deref(), mjtObj__mjOBJ_JOINT as i32, CString::new(name).unwrap().as_ptr())};
         if id == -1 {  // not found
@@ -91,8 +88,8 @@ impl<'a> MjData<'a> {
         let xpos;
         let xmat;
         unsafe {
-            xpos = PointerView::new(self.geom_xpos.add(GEOM_XPOS_LEN * id as usize), 3);
-            xmat = PointerView::new(self.geom_xpos.add(GEOM_XMAT_LEN * id as usize), 9);
+            xpos = PointerViewMut::new(self.geom_xpos.add(GEOM_XPOS_LEN * id as usize), 3);
+            xmat = PointerViewMut::new(self.geom_xpos.add(GEOM_XMAT_LEN * id as usize), 9);
         }
 
         Some(MjDataViewGeom { name: name.to_string(), id: id as usize, xmat, xpos })
@@ -107,7 +104,7 @@ impl<'a> MjData<'a> {
         let ctrl;
         let act;
         unsafe {
-            ctrl = PointerView::new(self.ctrl.add(id as usize).as_mut().unwrap(), 1);
+            ctrl = PointerViewMut::new(self.ctrl.add(id as usize).as_mut().unwrap(), 1);
             act = mj_slice_view!(self.act, id as usize, self.model.actuator_actadr, self.model.nu as usize, self.model.na as usize);
         }
 
@@ -186,12 +183,12 @@ impl DerefMut for MjData<'_> {
 pub struct MjDataViewJoint {
     pub name: String,
     pub id: usize,
-    pub qpos: PointerView<f64>,
-    pub qvel: PointerView<f64>,
-    pub qacc_warmstart: PointerView<f64>,
-    pub qacc: PointerView<f64>,
-    pub qfrc_applied: PointerView<f64>,
-    pub qfrc_bias: PointerView<f64>
+    pub qpos: PointerViewMut<f64>,
+    pub qvel: PointerViewMut<f64>,
+    pub qacc_warmstart: PointerViewMut<f64>,
+    pub qacc: PointerViewMut<f64>,
+    pub qfrc_applied: PointerViewMut<f64>,
+    pub qfrc_bias: PointerViewMut<f64>
 }
 
 impl MjDataViewJoint {
@@ -214,8 +211,8 @@ impl MjDataViewJoint {
 pub struct MjDataViewGeom {
     pub name: String,
     pub id: usize,
-    pub xmat: PointerView<f64>,
-    pub xpos: PointerView<f64>
+    pub xmat: PointerViewMut<f64>,
+    pub xpos: PointerViewMut<f64>
 }
 
 
@@ -228,6 +225,6 @@ pub struct MjDataViewGeom {
 pub struct MjDataViewActuator {
     pub name: String,
     pub id: usize,
-    pub ctrl: PointerView<f64>,
-    pub act: Option<PointerView<f64>>,
+    pub ctrl: PointerViewMut<f64>,
+    pub act: Option<PointerViewMut<f64>>,
 }

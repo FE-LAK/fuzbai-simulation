@@ -10,25 +10,26 @@ use std::ptr;
 
 
 /// Struct encapsulating screenshot required functionality.
-pub struct Render {
+pub struct Render<'m> {
     width: usize,
     height: usize,
-    scene: MjvScene,
+    scene: MjvScene<'m>,
     scene_opt: MjvOption,
     rect: MjrRectangle,
     ctx: MjrContext,
     window: *mut glfw::ffi::GLFWwindow,
-    owns_glfw: bool
+    owns_glfw: bool,
+    model: &'m MjModel
 }
 
 // We only use the raw pointer to check for previous OpenGL contexts to prevent
 // destroying OpenGL data when the C++ code uses it. This is technically not thread-safe
 // as OpenGL doesn't even allow usage outside the main thread (it seems like they tried to make the library unusable lol).
-unsafe impl Send for Render {}
-unsafe impl Sync for Render {}
+unsafe impl Send for Render<'_> {}
+unsafe impl Sync for Render<'_> {}
 
-impl Render {
-    pub fn new(model: &MjModel, width: usize, height: usize, max_geom: usize) -> Self {
+impl<'m> Render<'m> {
+    pub fn new(model: &'m MjModel, width: usize, height: usize, max_geom: usize) -> Self {
         let scene = MjvScene::new(model, max_geom);
         let mut ctx;
         let window;
@@ -61,7 +62,8 @@ impl Render {
             rect: MjrRectangle {left: 0, bottom: 0, width: width as i32, height: height as i32},
             ctx: ctx,
             window: window,
-            owns_glfw
+            owns_glfw,
+            model
         }
     }
 
@@ -71,7 +73,7 @@ impl Render {
     #[inline]
     pub fn height(&self) -> usize {self.height}
 
-    pub fn scene_mut(&mut self) -> &mut MjvScene {
+    pub fn scene_mut(&mut self) -> &mut MjvScene<'m> {
         &mut self.scene
     }
 
@@ -101,17 +103,17 @@ impl Render {
 
     pub fn update_scene(&mut self, data: &mut MjData, camera_id: Option<isize>, camera_name: Option<String>) {
         let camera_id = if let Some(name) = camera_name {
-            data.model().name2id(mjtObj__mjOBJ_CAMERA as i32, &name)
+            self.model.name2id(mjtObj__mjOBJ_CAMERA as i32, &name)
         } else {
             camera_id.unwrap_or(-1) as i32  // free camera
         };
 
-        let mut camera = MjvCamera::new(camera_id as isize, data.model());
+        let mut camera = MjvCamera::new(camera_id as isize, self.model);
         self.scene.update(data, &self.scene_opt, &mut camera);
     }
 }
 
-impl Drop for Render {
+impl Drop for Render<'_> {
     fn drop(&mut self) {
         if self.owns_glfw {
             unsafe { glfw::ffi::glfwTerminate() };
@@ -221,8 +223,6 @@ impl Visualizer {
 
         let color = color.unwrap_or(DEFAULT_ROD_ESTIMATE_RGBA);
         for (i, t, r, player_mask) in pos_rot {
-            assert!(!scene.full());
-
             first_position = ROD_TRAVELS[i] * (1.0 - t) + ROD_FIRST_OFFSET[i];
             pos_xyz = ROD_POSITIONS[i];
             unsafe {

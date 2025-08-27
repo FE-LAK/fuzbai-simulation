@@ -6,7 +6,9 @@ use std::ptr;
 
 use glfw::ffi::{glfwGetCurrentContext, glfwGetWindowSize};
 
+
 use super::mj_rendering::{MjrContext, MjrRectangle};
+use crate::util::PointerViewMut;
 use super::mj_model::MjModel;
 use super::mj_data::MjData;
 use crate::mujoco_c::*;
@@ -15,37 +17,46 @@ use crate::mujoco_c::*;
 /***********************************************************************************************************************
 ** MjvScene
 ***********************************************************************************************************************/
-pub type MjvScene = mjvScene;
-impl MjvScene {
-    pub fn new(model: &MjModel, max_geom: usize) -> Self {
-        let mut scn: mjvScene_ = Self::default();
+pub struct MjvScene<'m> {
+    scene: mjvScene,
+    model: &'m MjModel,
+    pub geoms: PointerViewMut<MjvGeom>,
+    pub flexface: PointerViewMut<f32>
+}
+
+impl<'m> MjvScene<'m> {
+    pub fn new(model: &'m MjModel, max_geom: usize) -> Self {
+        let mut scn: mjvScene_ = mjvScene_::default();
         unsafe {
             mjv_makeScene(model.deref(), &mut scn, max_geom as i32);
-            scn
+
+            let flexface = PointerViewMut::new(scn.flexface, scn.nflex as usize);
+            let geoms = PointerViewMut::new(scn.geoms, scn.ngeom as usize);
+
+            Self{
+                scene: scn, model: model,
+                /* Pointer attributes */
+                flexface, geoms
+            }
         }
     }
 
     pub fn update(&mut self, data: &mut MjData, opt: &MjvOption, cam: &mut MjvCamera) {
         unsafe {
             mjv_updateScene(
-                data.model().deref(), data.deref_mut(), opt, ptr::null(),
-                cam, mjtCatBit__mjCAT_ALL as i32, self
+                self.model.deref(), data.deref_mut(), opt, ptr::null(),
+                cam, mjtCatBit__mjCAT_ALL as i32, &mut self.scene
             );
         }
-    }
-
-    /// Returns `true` when the scene is full (ngeom == maxgeom).
-    pub fn full(&self) -> bool {
-        self.ngeom == self.maxgeom
     }
 
     /// Creates a new [`MjvGeom`] inside the scene. A reference is returned for additional modification,
     /// however it must be dropped before any additional calls to this method or any other methods.
     /// The return reference's lifetime is bound to the lifetime of self.
-    pub fn create_geom<'a>(
-        &'a mut self, geom_type: mjtGeom, size: Option<[f64; 3]>,
+    pub fn create_geom<'s>(
+        &'s mut self, geom_type: mjtGeom, size: Option<[f64; 3]>,
         pos: Option<[f64; 3]>, mat: Option<[f64; 9]>, rgba: Option<[f32; 4]>
-    ) -> &'a mut MjvGeom {
+    ) -> &'s mut MjvGeom {
         assert!(self.ngeom < self.maxgeom);
 
         /* Gain raw pointers to data inside the Option enum (which is a C union) */
@@ -56,9 +67,10 @@ impl MjvScene {
 
         let p_geom;
         unsafe {
-            p_geom = self.geoms.add(self.ngeom as usize);
+            p_geom = self.scene.geoms.add(self.ngeom as usize);
             mjv_initGeom(p_geom, geom_type as i32, size_ptr, pos_ptr, mat_ptr, rgba_ptr);
             self.ngeom += 1;
+            self.geoms.set_len(self.ngeom as usize);
             p_geom.as_mut().unwrap()
         }
     }
@@ -66,6 +78,7 @@ impl MjvScene {
     /// Clears the created geoms.
     pub fn clear_geom(&mut self) {
         self.ngeom = 0;
+        unsafe { self.geoms.set_len(0) };
     }
 
     /// Renders the scene to the screen. This does not automatically make the OpenGL context current.
@@ -79,7 +92,7 @@ impl MjvScene {
 
             let mut output = vec![0; width as usize * height as usize * 3];  // width * height * RGB
 
-            mjr_render(viewport.clone(), self, context);
+            mjr_render(viewport.clone(), &mut self.scene, context);
             self.read_pixels(&mut output, viewport, context);
             output
         }
@@ -96,7 +109,7 @@ impl MjvScene {
     }
 }
 
-impl Default for MjvScene {
+impl Default for mjvScene {
     fn default() -> Self {
         unsafe {
             let mut scn = MaybeUninit::uninit();
@@ -106,11 +119,25 @@ impl Default for MjvScene {
     }
 }
 
-impl Drop for MjvScene {
+impl Drop for mjvScene {
     fn drop(&mut self) {
         unsafe {
             mjv_freeScene(self);
         }
+    }
+}
+
+/* Deref's that give access to the internal C struct, which is semantically */
+impl Deref for MjvScene<'_> {
+    type Target = mjvScene;
+    fn deref(&self) -> &Self::Target {
+        &self.scene
+    }
+}
+
+impl DerefMut for MjvScene<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.scene
     }
 }
 
