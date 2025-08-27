@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+use std::marker::PhantomData;
 use std::ffi::CString;
 
 use super::mj_auxilary::MjContact;
@@ -51,7 +52,7 @@ impl<'a> MjData<'a> {
         }
     }
 
-    pub fn joint(&self, name: &str) -> Option<MjDataViewJoint> {
+    pub fn joint(&self, name: &str) -> Option<MjJointInfo> {
         let id = unsafe { mj_name2id(self.model.deref(), mjtObj__mjOBJ_JOINT as i32, CString::new(name).unwrap().as_ptr())};
         if id == -1 {  // not found
             return None;
@@ -65,18 +66,18 @@ impl<'a> MjData<'a> {
         let qfrc_bias;
         unsafe {
             // ptr:expr, $id:expr, $addr_map:expr, $njnt:expr, $max_n:expr
-            qpos = mj_slice_view!(self.qpos, id as usize, self.model.jnt_qposadr, self.model.njnt as usize, self.model.nq as usize).unwrap();
-            qvel = mj_slice_view!(self.qvel, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize).unwrap();
-            qacc_warmstart = mj_slice_view!(self.qacc_warmstart, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize).unwrap();
-            qacc = mj_slice_view!(self.qacc, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize).unwrap();
-            qfrc_applied = mj_slice_view!(self.qfrc_applied, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize).unwrap();
-            qfrc_bias = mj_slice_view!(self.qfrc_bias, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize).unwrap();
+            qpos = mj_slice_view!(self.qpos, id as usize, self.model.jnt_qposadr, self.model.njnt as usize, self.model.nq as usize);
+            qvel = mj_slice_view!(self.qvel, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
+            qacc_warmstart = mj_slice_view!(self.qacc_warmstart, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
+            qacc = mj_slice_view!(self.qacc, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
+            qfrc_applied = mj_slice_view!(self.qfrc_applied, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
+            qfrc_bias = mj_slice_view!(self.qfrc_bias, id as usize, self.model.jnt_dofadr, self.model.njnt as usize, self.model.nv as usize);
         }
 
-        Some(MjDataViewJoint {name: name.to_string(), id: id as usize, qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias})
+        Some(MjJointInfo {name: name.to_string(), id: id as usize, qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias})
     }
 
-    pub fn geom(&self, name: &str) -> Option<MjDataViewGeom> {
+    pub fn geom(&self, name: &str) -> Option<MjGeomInfo> {
         const GEOM_XPOS_LEN: usize = 3;
         const GEOM_XMAT_LEN: usize = 9;
 
@@ -85,17 +86,12 @@ impl<'a> MjData<'a> {
             return None;
         }
 
-        let xpos;
-        let xmat;
-        unsafe {
-            xpos = PointerViewMut::new(self.geom_xpos.add(GEOM_XPOS_LEN * id as usize), 3);
-            xmat = PointerViewMut::new(self.geom_xpos.add(GEOM_XMAT_LEN * id as usize), 9);
-        }
-
-        Some(MjDataViewGeom { name: name.to_string(), id: id as usize, xmat, xpos })
+        let xpos = (GEOM_XPOS_LEN * id as usize, 3);
+        let xmat = (GEOM_XMAT_LEN * id as usize, 9);
+        Some(MjGeomInfo { name: name.to_string(), id: id as usize, xmat, xpos })
     }
 
-    pub fn actuator(&self, name: &str) -> Option<MjDataViewActuator> {
+    pub fn actuator(&self, name: &str) -> Option<MjActuatorInfo> {
         let id = unsafe { mj_name2id(self.model.deref(), mjtObj__mjOBJ_ACTUATOR as i32, CString::new(name).unwrap().as_ptr())};
         if id == -1 {  // not found
             return None;
@@ -104,11 +100,11 @@ impl<'a> MjData<'a> {
         let ctrl;
         let act;
         unsafe {
-            ctrl = PointerViewMut::new(self.ctrl.add(id as usize).as_mut().unwrap(), 1);
+            ctrl = (id as usize, 1);
             act = mj_slice_view!(self.act, id as usize, self.model.actuator_actadr, self.model.nu as usize, self.model.na as usize);
         }
 
-        Some(MjDataViewActuator { name: name.to_string(), id: id as usize, ctrl, act })
+        Some(MjActuatorInfo { name: name.to_string(), id: id as usize, ctrl, act})
     } 
 
     /// Steps the MuJoCo simulation.
@@ -174,30 +170,66 @@ impl DerefMut for MjData<'_> {
 }
 
 
+macro_rules! view_creator {
+    ($self:ident, $view:ident, $data:ident, [$($field:ident),*], [$($opt_field:ident),*]) => {
+        unsafe {
+            $view {
+                $(
+                    $field: PointerViewMut::new($data.$field.add($self.$field.0), $self.$field.1),
+                )*
+                $(
+                    $opt_field: if $self.$opt_field.1 > 0 {
+                        Some(PointerViewMut::new($data.$opt_field.add($self.$opt_field.0), $self.$opt_field.1))
+                    } else {None},
+                )*
+                phantom: PhantomData,
+            }
+        }
+    };
+}
+
+
 /// A MjDataViewX which shows a slice of the joint.
 /// # SAFETY
 /// This is not thread-safe nor lifetime-safe.
 /// The view must be dropped before MjData, which is the
 /// RESPONSIBILITY OF THE USER.
 #[derive(Debug, PartialEq)]
-pub struct MjDataViewJoint {
+pub struct MjJointInfo{
     pub name: String,
     pub id: usize,
+    qpos: (usize, usize),
+    qvel: (usize, usize),
+    qacc_warmstart: (usize, usize),
+    qacc: (usize, usize),
+    qfrc_applied: (usize, usize),
+    qfrc_bias: (usize, usize),
+}
+
+impl MjJointInfo {
+    pub fn view_mut<'d>(&self, data: &'d mut MjData) -> MjJointViewMut<'d, '_> {
+        view_creator!(self, MjJointViewMut, data, [qpos, qvel, qacc_warmstart, qacc, qfrc_applied, qfrc_bias], [])
+    }
+}
+
+pub struct MjJointViewMut<'d, 'm: 'd> {
     pub qpos: PointerViewMut<f64>,
     pub qvel: PointerViewMut<f64>,
     pub qacc_warmstart: PointerViewMut<f64>,
     pub qacc: PointerViewMut<f64>,
     pub qfrc_applied: PointerViewMut<f64>,
-    pub qfrc_bias: PointerViewMut<f64>
+    pub qfrc_bias: PointerViewMut<f64>,
+    phantom: PhantomData<&'d MjData<'m>>
 }
 
-impl MjDataViewJoint {
+impl MjJointViewMut<'_, '_> {
     pub fn reset(&mut self) {
         self.qpos.fill(0.0);
         self.qvel.fill(0.0);
         self.qacc_warmstart.fill(0.0);
         self.qacc.fill(0.0);
         self.qfrc_applied.fill(0.0);
+        self.qfrc_bias.fill(0.0);
     }
 }
 
@@ -208,11 +240,23 @@ impl MjDataViewJoint {
 /// The view must be dropped before MjData, which is the
 /// RESPONSIBILITY OF THE USER.
 #[derive(Debug, PartialEq)]
-pub struct MjDataViewGeom {
+pub struct MjGeomInfo {
     pub name: String,
     pub id: usize,
+    xmat: (usize, usize),
+    xpos: (usize, usize)
+}
+
+impl MjGeomInfo {
+    pub fn view_mut<'d>(&self, data: &'d mut MjData) -> MjGeomViewMut<'d, '_> {
+        view_creator!(self, MjGeomViewMut, data, [xmat, xpos], [])
+    }
+}
+
+pub struct MjGeomViewMut<'d, 'm: 'd> {
     pub xmat: PointerViewMut<f64>,
-    pub xpos: PointerViewMut<f64>
+    pub xpos: PointerViewMut<f64>,
+    phantom: PhantomData<&'d MjData<'m>>
 }
 
 
@@ -222,9 +266,21 @@ pub struct MjDataViewGeom {
 /// The view must be dropped before MjData, which is the
 /// RESPONSIBILITY OF THE USER.
 #[derive(Debug, PartialEq)]
-pub struct MjDataViewActuator {
+pub struct MjActuatorInfo {
     pub name: String,
     pub id: usize,
+    ctrl: (usize, usize),
+    act: (usize, usize),
+}
+
+impl MjActuatorInfo {
+    fn view_mut<'d>(&self, data: &'d mut MjData) -> MjActuatorViewMut<'d, '_> {
+        view_creator!(self, MjActuatorViewMut, data, [ctrl], [act])
+    }
+}
+
+pub struct MjActuatorViewMut<'d, 'm: 'd> {
     pub ctrl: PointerViewMut<f64>,
     pub act: Option<PointerViewMut<f64>>,
+    phantom: PhantomData<&'d MjData<'m>>
 }
