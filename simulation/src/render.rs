@@ -168,22 +168,13 @@ impl Visualizer {
                 ball_rgba = std::array::from_fn(
                     |idx| BALL_TRACE_RGBA_START[idx] + coeff * BALL_TRACE_RGBA_DIFF[idx]
                 );
-                unsafe {
-                    mujoco_rs::mujoco_c::mjv_initGeom(
-                        scene.geoms.add(scene.ngeom as usize),
-                        mjtGeom__mjGEOM_CAPSULE as i32,
-                        [0.0;3].as_ptr(), [0.0;3].as_ptr(), [0.0;9].as_ptr(),
-                        ball_rgba.as_ptr()
-                    );
-                    // Position and orient the capsule in such way that it
-                    // connects the previous and current ball position
-                    mujoco_rs::mujoco_c::mjv_connector(
-                        scene.geoms.add(scene.ngeom as usize),
-                        mjtGeom__mjGEOM_CAPSULE as i32,
-                        BALL_TRACE_RADIUS, state_prev.0.as_ptr(), state.0.as_ptr()
-                    );
-                    scene.ngeom += 1
-                }
+
+                // Position and orient the capsule in such way that it
+                // connects the previous and current ball position
+                scene.create_geom(
+                    mjtGeom__mjGEOM_CAPSULE, None, None,
+                    None, Some(ball_rgba)
+                ).connect(BALL_TRACE_RADIUS, state_prev.0, state.0);
             }
 
             // Render rod geoms
@@ -208,18 +199,11 @@ impl Visualizer {
             (727.0 - position[1]) / 1000.0,
             position[2] / 1000.0 + Z_FIELD
         ];
-        unsafe {
-            assert!(!scene.full());
-            mujoco_rs::mujoco_c::mjv_initGeom(
-                scene.geoms.add(scene.ngeom as usize),
-                mjtGeom__mjGEOM_SPHERE as i32,
-                &BALL_RADIUS_M,
-                position_global.as_ptr(),
-                std::ptr::null(),
-                color.as_ptr()
-            );
-            scene.ngeom += 1;
-        }
+
+        scene.create_geom(
+            mjtGeom__mjGEOM_SPHERE, Some([BALL_RADIUS_M, 0.0, 0.0]),
+            Some(position_global), None, Some(color)
+        );        
     }
 
     pub fn render_rods_estimates<T>(scene: &mut MjvScene, pos_rot: T, color: Option<RGBAType>)
@@ -258,47 +242,47 @@ impl Visualizer {
                     continue;
                 }
 
-                unsafe {
-                    dy = first_position + ROD_SPACING[i] * p as f64;
-                    pos_trans = pos_xyz;
-                    pos_trans[1] += dy;
-                    vgeom = scene.geoms.add(scene.ngeom as usize).as_mut().unwrap();
+                dy = first_position + ROD_SPACING[i] * p as f64;
+                pos_trans = pos_xyz;
+                pos_trans[1] += dy;
 
-                    // Rotation will affect the geom relative to it's MuJoCo geom coordinate system, however
-                    // we want to rotate around the actual rod. We offset the geom away from the rod exactly
-                    // ``ROD_ESTIMATE_FRAME_UPPER_OFFSET`` in the rotated direction.
-                    offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_UPPER_OFFSET];
-                    mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr());
-                    pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
-                    mjv_initGeom(vgeom, mjtGeom__mjGEOM_MESH as i32, ptr::null(),
-                                 pos_trans.as_ptr(), mat.as_ptr(), color.as_ptr());
+                // Rotation will affect the geom relative to it's MuJoCo geom coordinate system, however
+                // we want to rotate around the actual rod. We offset the geom away from the rod exactly
+                // ``ROD_ESTIMATE_FRAME_UPPER_OFFSET`` in the rotated direction.
+                offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_UPPER_OFFSET];
+                unsafe {mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr())};
+                pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
 
-                    // According to mujoco/src/engine/engine_vis_visualize.c, actual data id is twice the mesh id...
-                    // ! Good thing that this isn't documented anywhere in the MuJoCo docs !.
-                    vgeom.dataid =  ROD_MESH_UPPER_PLAYER_ID * 2;
-                    scene.ngeom += 1;
+                vgeom = scene.create_geom(
+                    mjtGeom__mjGEOM_MESH, None, Some(pos_trans),
+                    Some(mat), Some(color)
+                );
 
-                    // Same for the bottom geom of the player
-                    pos_trans = pos_xyz;
-                    pos_trans[1] += dy;
-                    vgeom = scene.geoms.add(scene.ngeom as usize).as_mut().unwrap();
-                    mat_bottom = [0.0; 9];
+                // According to mujoco/src/engine/engine_vis_visualize.c, actual data id is twice the mesh id...
+                // ! Good thing that this isn't documented anywhere in the MuJoCo docs !.
+                vgeom.dataid =  ROD_MESH_UPPER_PLAYER_ID * 2;
 
-                    // Rotate the bottom part 90 degrees around x first, then apply the joint rotation
-                    mju_mulMatMat(
-                        mat_bottom.as_mut_ptr(),
-                        mat.as_ptr(), ROD_BOTTOM_PRE_ROTATION_MAT.as_ptr(),
-                        3, 3, 3
-                    );
+                // Same for the bottom geom of the player
+                pos_trans = pos_xyz;
+                pos_trans[1] += dy;
+                mat_bottom = [0.0; 9];
 
-                    offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_LOWER_OFFSET];
-                    mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr());
-                    pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
-                    mjv_initGeom(vgeom, mjtGeom__mjGEOM_MESH as i32, ptr::null(),
-                                 pos_trans.as_ptr(), mat_bottom.as_ptr(), color.as_ptr());                        
-                    vgeom.dataid =  ROD_MESH_LOWER_PLAYER_ID * 2;
-                    scene.ngeom += 1;
-                }
+                // Rotate the bottom part 90 degrees around x first, then apply the joint rotation
+                unsafe {mju_mulMatMat(
+                    mat_bottom.as_mut_ptr(),
+                    mat.as_ptr(), ROD_BOTTOM_PRE_ROTATION_MAT.as_ptr(),
+                    3, 3, 3
+                )};
+
+                offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_LOWER_OFFSET];
+                unsafe{mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr())};
+
+                pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
+                vgeom = scene.create_geom(
+                    mjtGeom__mjGEOM_MESH, None, Some(pos_trans),
+                    Some(mat_bottom), Some(color)
+                );
+                vgeom.dataid =  ROD_MESH_LOWER_PLAYER_ID * 2;
             }
         }
     }

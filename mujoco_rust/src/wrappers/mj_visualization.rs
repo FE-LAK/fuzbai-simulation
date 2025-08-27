@@ -39,6 +39,30 @@ impl MjvScene {
         self.ngeom == self.maxgeom
     }
 
+    /// Creates a new [`MjvGeom`] inside the scene. A reference is returned for additional modification,
+    /// however it must be dropped before any additional calls to this method or any other methods.
+    /// The return reference's lifetime is bound to the lifetime of self.
+    pub fn create_geom<'a>(
+        &'a mut self, geom_type: mjtGeom, size: Option<[f64; 3]>,
+        pos: Option<[f64; 3]>, mat: Option<[f64; 9]>, rgba: Option<[f32; 4]>
+    ) -> &'a mut MjvGeom {
+        assert!(self.ngeom < self.maxgeom);
+
+        /* Gain raw pointers to data inside the Option enum (which is a C union) */
+        let size_ptr = size.as_ref().map_or(ptr::null(), |x| x.as_ptr());
+        let pos_ptr = pos.as_ref().map_or(ptr::null(), |x| x.as_ptr());
+        let mat_ptr = mat.as_ref().map_or(ptr::null(), |x| x.as_ptr());
+        let rgba_ptr = rgba.as_ref().map_or(ptr::null(), |x| x.as_ptr());
+
+        let p_geom;
+        unsafe {
+            p_geom = self.geoms.add(self.ngeom as usize);
+            mjv_initGeom(p_geom, geom_type as i32, size_ptr, pos_ptr, mat_ptr, rgba_ptr);
+            self.ngeom += 1;
+            p_geom.as_mut().unwrap()
+        }
+    }
+
     /// Clears the created geoms.
     pub fn clear_geom(&mut self) {
         self.ngeom = 0;
@@ -145,6 +169,19 @@ impl Default for MjvOption {
         unsafe {
             mjv_defaultOption(opt.as_mut_ptr());
             opt.assume_init()
+        }
+    }
+}
+
+/***********************************************************************************************************************
+** mjvGeom
+***********************************************************************************************************************/
+pub type MjvGeom = mjvGeom;
+impl MjvGeom {
+    /// Wrapper around the MuJoCo's mjv_connector function.
+    pub fn connect(&mut self, width: f64, from: [f64; 3], to: [f64; 3]) {
+        unsafe {
+            mjv_connector(self, self.type_, width, from.as_ptr(), to.as_ptr());
         }
     }
 }
