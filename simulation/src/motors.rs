@@ -9,8 +9,8 @@ pub(crate) struct TrapezoidMotorSystem {
     max_velocity: [f64; 8],
     max_acceleration: [f64; 8],
 
-    joint_view: [MjDataViewJoint; 8],
-    actuator_view: [MjDataViewActuator; 8],
+    joint_info: [MjJointInfo; 8],
+    actuator_info: [MjActuatorInfo; 8],
 
     // State
     target_velocity: [f64; 8],
@@ -25,11 +25,19 @@ pub(crate) struct TrapezoidMotorSystem {
 }
 
 impl TrapezoidMotorSystem {
-    pub fn new(kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8], stop_threshold: f64, dead_band: [f64; 8], joint_view: [MjDataViewJoint; 8], actuator_view: [MjDataViewActuator; 8]) -> Self {
+    pub fn new(
+        kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8],
+        stop_threshold: f64, dead_band: [f64; 8],
+        joint_info: [MjJointInfo; 8],
+        actuator_info: [MjActuatorInfo; 8]
+    ) -> Self {
         let target_velocity: [f64; 8] = [0.0; 8];
         let target_pos = [0.0; 8];
         let direction = [0.0; 8];
-        Self {kp, kd, max_velocity, max_acceleration, joint_view, actuator_view, target_velocity, target_pos, direction, stop_threshold, dead_band}
+        Self {
+            kp, kd, max_velocity, max_acceleration, joint_info, actuator_info,
+            target_velocity, target_pos, direction, stop_threshold, dead_band
+        }
     }
 
     pub fn set_params(&mut self, act_id: usize, kp: f64, kd: f64, max_vel: f64, max_acc: f64) {
@@ -40,12 +48,12 @@ impl TrapezoidMotorSystem {
     }
 
     /// Updates the actuator states and the output torque
-    pub fn step(&mut self) {
+    pub fn step(&mut self, data: &mut MjData) {
         for act_id in 0..8 {
-            let act_view = &mut self.actuator_view[act_id];
-            let qpos = self.joint_view[act_id].qpos[0];
-            let qvel = self.joint_view[act_id].qvel[0];
-            let grav_comp = self.joint_view[act_id].qfrc_bias[0];
+            let joint_view = self.joint_info[act_id].view_mut(data);
+            let qpos = joint_view.qpos[0];
+            let qvel = joint_view.qvel[0];
+            let grav_comp = joint_view.qfrc_bias[0];
 
             let pos_error = self.target_pos[act_id] - qpos;
             let stop_dist = self.target_velocity[act_id] * self.target_velocity[act_id] / (2.0 * self.max_acceleration[act_id]);
@@ -63,11 +71,15 @@ impl TrapezoidMotorSystem {
             self.target_velocity[act_id] = self.target_velocity[act_id].clamp(-self.max_velocity[act_id], self.max_velocity[act_id]);
             let vel_error: f64 = self.target_velocity[act_id] - qvel;
             let tanh_arg = (pos_error * 3.0 / self.stop_threshold).abs();
+
+            // performance tuning
             let scale = if tanh_arg < 3.0 {
                 f64::tanh(tanh_arg).powf(0.5)
             } else {
                 1.0
-            };  // performance tuning
+            };
+
+            let mut act_view = self.actuator_info[act_id].view_mut(data);
             act_view.ctrl[0] = scale * self.kp[act_id] * vel_error - self.kd[act_id] * qvel + grav_comp;
         }
     }
@@ -85,51 +97,48 @@ impl TrapezoidMotorSystem {
     }
 
     #[inline]
-    pub fn set_qpos(&mut self, act_id: usize, value: f64) {
-        self.joint_view[act_id].qpos[0] = value;
+    pub fn set_qpos(&mut self, data: &mut MjData, act_id: usize, value: f64) {
+        self.joint_info[act_id].view_mut(data).qpos[0] = value;
     }
 
+    #[inline]
     #[allow(unused)]
-    #[inline]
-    pub fn set_qvel(&mut self, act_id: usize, value: f64) {
-        self.joint_view[act_id].qvel[0] = value;
+    pub fn set_qvel(&mut self, data: &mut MjData, act_id: usize, value: f64) {
+        self.joint_info[act_id].view_mut(data).qvel[0] = value;
     }
 
     #[inline]
-    pub fn qpos(&self, act_id: usize) -> f64 {
-        return self.joint_view[act_id].qpos[0];
+    pub fn qpos(&self, data: &MjData, act_id: usize) -> f64 {
+        self.joint_info[act_id].view(data).qpos[0]
     }
 
-    #[allow(unused)]
     #[inline]
-    pub fn qvel(&self, act_id: usize) -> f64 {
-        return self.joint_view[act_id].qvel[0];
+    pub fn qvel(&self, data: &MjData, act_id: usize) -> f64 {
+        self.joint_info[act_id].view(data).qvel[0]
     }
 
     /// Forcefully stops the actuator.
     #[inline]
-    pub fn force_stop(&mut self, act_id: usize) {
-        self.joint_view[act_id].qvel[0] = 0.0;  // actual stop
-        // The real table throws away the original target if forcefully stopped, so set the reference
-        // to the current position.
-        // *self.actuator_view[act_id].ctrl = self.joint_view[act_id].qpos[0];
+    pub fn force_stop(&mut self, act_id: usize, data: &mut MjData) {
+        let mut joint_view = self.joint_info[act_id].view_mut(data);
+        joint_view.qvel[0] = 0.0;  // actual stop
         self.target_velocity[act_id] = 0.0;
-        self.target_pos[act_id] = self.joint_view[act_id].qpos[0];
-        self.actuator_view[act_id].ctrl[0] = 0.0;
+        self.target_pos[act_id] = joint_view.qpos[0];
+        self.actuator_info[act_id].view_mut(data).ctrl[0] = 0.0;
     }
 
     /// Check if the motor can stop exactly at the reference position with maximum
     /// deceleration. If that is not possible, forcefully stop the motor at the current position.
     #[inline]
     #[allow(unused)]
-    pub fn check_reference(&mut self) {
+    pub fn check_reference(&mut self, data: &mut MjData) {
         for act_id in 0..8 {
-            let qvel = self.qvel(act_id);
+            let qvel = self.qvel(data, act_id);
             let stop_dist = qvel * qvel / (2.0 * self.max_acceleration[act_id]);
             let qvel_abs = qvel.abs();
-            if (self.target_pos[act_id] - self.qpos(act_id)).abs() < stop_dist && qvel_abs < 0.5 && qvel_abs > 0.2
+            if (self.target_pos[act_id] - self.qpos(data, act_id)).abs() < stop_dist && qvel_abs < 0.5 && qvel_abs > 0.2
             {
-                self.force_stop(act_id);
+                self.force_stop(act_id, data);
             }
         }
     }

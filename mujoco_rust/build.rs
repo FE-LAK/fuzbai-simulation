@@ -1,6 +1,23 @@
+use bindgen::callbacks::{ParseCallbacks, DeriveInfo};
 use std::path::PathBuf;
 use std::env;
 use std::fs;
+
+
+#[derive(Debug)]
+struct CloneCallback;
+
+impl ParseCallbacks for CloneCallback {
+    fn add_derives(&self, info: &DeriveInfo) -> Vec<String> {
+        let mut data = vec!["Clone".into()];
+        if info.name.starts_with("mjui") || info.name == "mjrRect_" {
+            data.push("Copy".into());
+        }
+
+        data
+    }
+}
+
 
 
 fn main() {
@@ -36,10 +53,11 @@ fn main() {
         .allowlist_item("mujoco::.*")
         .allowlist_item("new_simulate")
         .allowlist_item("free_simulate")
-        .manually_drop_union(".*")
-        .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
         .layout_tests(false)
-        .derive_default(true)
+        .derive_default(false)
+        .opaque_type("std::.*")
+        .derive_copy(false)
+        .parse_callbacks(Box::new(CloneCallback))
         .generate()
         .expect("unable to generate MuJoCo bindings");
 

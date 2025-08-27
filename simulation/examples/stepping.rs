@@ -1,13 +1,15 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, VisualConfig};
 use std::time::Instant;
 
+
+
 fn main() {
     let mut sim = FuzbAISimulator::new(
         10, 0, true, 0.0,
         None,
         VisualConfig::new(
-            0, true,
-            0,
+            10, true,
+            0xFF,
             5, None
         )
     );
@@ -23,6 +25,14 @@ fn main() {
             sim.reset_simulation();
         }
         sim.step_simulation();
+
+        let mut xyz: [f64; 3] = sim.ball_true_state()[..3].try_into().unwrap();
+        xyz[2] = 0.0;
+
+        if sim.viewer_running() {
+            sim.show_estimates(Some(xyz), None);
+        }
+
         n += 1;
         if t0.elapsed().as_micros() > 1_000_000 {
             println!("{n}");
