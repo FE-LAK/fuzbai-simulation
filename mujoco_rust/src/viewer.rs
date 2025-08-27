@@ -48,9 +48,9 @@ impl<'m> MjViewer<'m> {
         let mut _user_scn = Box::new(MjvScene::new(&model, scene_max_ngeom));
         let sim;
         unsafe {
-            sim = new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, &mut **_user_scn, true);
+            sim = new_simulate(&mut *_cam, &mut *_opt, &mut *_pert, _user_scn.ffi_mut(), true);
             (*sim).RenderInit();
-            (*sim).Load(model.__raw(), data.__raw(), CString::new("file.xml").unwrap().as_ptr());
+            (*sim).Load(model.__raw(), data.ffi_mut(), CString::new("file.xml").unwrap().as_ptr());
             (*sim).RenderStep(true);
         }
 

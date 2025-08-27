@@ -59,7 +59,7 @@ impl<'m> Render<'m> {
         Self {
             width, height,
             scene, scene_opt: options,
-            rect: MjrRectangle {left: 0, bottom: 0, width: width as i32, height: height as i32},
+            rect: MjrRectangle::new(0, 0, width as i32, height as i32),
             ctx: ctx,
             window: window,
             owns_glfw,
@@ -157,7 +157,6 @@ impl Visualizer {
 
         n_iter -= 1;
 
-        assert!(scene.ngeom as usize + (n_iter - 1) * TRACE_GEOM_LEN < scene.maxgeom as usize);
         for (i, (state_prev, state)) in self.trace_buffer.iter()
             .zip(self.trace_buffer.iter().skip(1)).enumerate()
         {
@@ -260,7 +259,7 @@ impl Visualizer {
 
                 // According to mujoco/src/engine/engine_vis_visualize.c, actual data id is twice the mesh id...
                 // ! Good thing that this isn't documented anywhere in the MuJoCo docs !.
-                vgeom.dataid =  ROD_MESH_UPPER_PLAYER_ID * 2;
+                vgeom.dataid = ROD_MESH_UPPER_PLAYER_ID * 2;
 
                 // Same for the bottom geom of the player
                 pos_trans = pos_xyz;
@@ -282,7 +281,7 @@ impl Visualizer {
                     mjtGeom__mjGEOM_MESH, None, Some(pos_trans),
                     Some(mat_bottom), Some(color)
                 );
-                vgeom.dataid =  ROD_MESH_LOWER_PLAYER_ID * 2;
+                vgeom.dataid = ROD_MESH_LOWER_PLAYER_ID * 2;
             }
         }
     }
