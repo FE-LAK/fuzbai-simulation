@@ -15,7 +15,7 @@ rand = "0.9.1"
 glfw = "0.59.0"
 
 [build-dependencies]
-mujoco_rs = {path = "../mujoco_rust/"}
+mujoco_rs = {path = "../mujoco-rs-w/"}
 
 [profile.release]
 opt-level = 3
