@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = "0.24.2"
-mujoco_rs = {path = "../mujoco_rust/"}
+mujoco_rs = {path = "../mujoco-rs-w/"}
 agent_rust = {path = "../fuzbai-agent/"}
 rand = "0.9.1"
 glfw = "0.59.0"
