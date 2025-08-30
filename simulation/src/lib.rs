@@ -990,6 +990,7 @@ pub enum LodePNGColorType {
 }
 
 unsafe extern "C" {
+    #[link_name = "_Z19lodepng_encode_filePKcPKhjj16LodePNGColorTypej"]
     pub fn lodepng_encode_file(
         filename: *const c_char,
         image: *const c_uchar,
