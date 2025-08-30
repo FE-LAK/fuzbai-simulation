@@ -19,7 +19,6 @@ classifiers = [
 ]
 
 [tool.maturin]
-features = ["python-module"]
 include = ["../mujoco_rust/lib/*.so"]
 bindings = "pyo3"
 compatibility = "manylinux_2_34"
