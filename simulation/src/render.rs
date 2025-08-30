@@ -1,7 +1,7 @@
 //! Rendering definitions
 use std::collections::VecDeque;
-use mujoco_rs::wrappers::*;
-use mujoco_rs::mujoco_c::*;
+use mujoco_rs_w::wrappers::*;
+use mujoco_rs_w::mujoco_c::*;
 use crate::constant::*;
 use std::ffi::CString;
 use crate::types::*;
@@ -103,12 +103,12 @@ impl<'m> Render<'m> {
 
     pub fn update_scene(&mut self, data: &mut MjData, camera_id: Option<isize>, camera_name: Option<String>) {
         let camera_id = if let Some(name) = camera_name {
-            self.model.name2id(mjtObj__mjOBJ_CAMERA as i32, &name)
+            self.model.name2id(mjtObj::mjOBJ_CAMERA as i32, &name)
         } else {
             camera_id.unwrap_or(-1) as i32  // free camera
         };
 
-        let mut camera = MjvCamera::new(camera_id as isize, self.model);
+        let mut camera = MjvCamera::new(camera_id as u32, mjtCamera::mjCAMERA_FIXED, self.model);
         self.scene.update(data, &self.scene_opt, &mut camera);
     }
 }
@@ -173,7 +173,7 @@ impl Visualizer {
                 // Position and orient the capsule in such way that it
                 // connects the previous and current ball position
                 scene.create_geom(
-                    mjtGeom__mjGEOM_CAPSULE, None, None,
+                    mjtGeom::mjGEOM_CAPSULE, None, None,
                     None, Some(ball_rgba)
                 ).connect(BALL_TRACE_RADIUS, state_prev.0, state.0);
             }
@@ -202,7 +202,7 @@ impl Visualizer {
         ];
 
         scene.create_geom(
-            mjtGeom__mjGEOM_SPHERE, Some([BALL_RADIUS_M, 0.0, 0.0]),
+            mjtGeom::mjGEOM_SPHERE, Some([BALL_RADIUS_M, 0.0, 0.0]),
             Some(position_global), None, Some(color)
         );        
     }
@@ -253,7 +253,7 @@ impl Visualizer {
                 pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
 
                 vgeom = scene.create_geom(
-                    mjtGeom__mjGEOM_MESH, None, Some(pos_trans),
+                    mjtGeom::mjGEOM_MESH, None, Some(pos_trans),
                     Some(mat), Some(color)
                 );
 
@@ -278,7 +278,7 @@ impl Visualizer {
 
                 pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
                 vgeom = scene.create_geom(
-                    mjtGeom__mjGEOM_MESH, None, Some(pos_trans),
+                    mjtGeom::mjGEOM_MESH, None, Some(pos_trans),
                     Some(mat_bottom), Some(color)
                 );
                 vgeom.dataid = ROD_MESH_LOWER_PLAYER_ID * 2;

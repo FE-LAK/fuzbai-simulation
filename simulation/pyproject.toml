@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 [tool.maturin]
-features = ["pyo3/abi3-py38", "pyo3/extension-module", "pyo3/generate-import-lib"]
+features = ["python-module"]
 include = ["../mujoco_rust/lib/*.so"]
 bindings = "pyo3"
 compatibility = "manylinux_2_34"

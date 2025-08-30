@@ -1,9 +1,10 @@
-use mujoco_rs::mujoco_c::mjtObj__mjOBJ_GEOM;
+use mujoco_rs_w::mujoco_c::mjtObj;
 use agent_rust::Agent as BuiltInAgent;
-use mujoco_rs::viewer::MjViewer;
-use mujoco_rs::lodepng_c::*;
-use mujoco_rs::prelude::*;
-use mujoco_rs;
+use mujoco_rs_w::viewer::MjViewer;
+use mujoco_rs_w::prelude::*;
+use mujoco_rs_w;
+
+use std::os::raw::{c_char, c_uint, c_uchar};
 
 use std::collections::VecDeque;
 use std::cell::RefCell;
@@ -53,6 +54,7 @@ pub enum PlayerTeam {
     RED = 0,
     BLUE
 }
+
 
 #[pymethods]
 /// Python methods for pickle support
@@ -241,7 +243,7 @@ impl FuzbAISimulator {
             G_MJ_VIEWER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
-                    let v = mujoco_rs::viewer::MjViewer::launch_passive(
+                    let v = mujoco_rs_w::viewer::MjViewer::launch_passive(
                         model, &mj_data,
                         VIEWER_MAX_STATIC_SCENE_GEOM + visual_config.trace_length * TRACE_GEOM_LEN
                     );
@@ -262,14 +264,14 @@ impl FuzbAISimulator {
 
         // Find geom IDs of the individual goals. This is used for detecting scored goals.
         let mj_red_goal_geom_ids = [
-            model.name2id(mjtObj__mjOBJ_GEOM as i32, "left-goal-hole"),
-            model.name2id(mjtObj__mjOBJ_GEOM as i32, "left-goal-back"),
+            model.name2id(mjtObj::mjOBJ_GEOM as i32, "left-goal-hole"),
+            model.name2id(mjtObj::mjOBJ_GEOM as i32, "left-goal-back"),
             
         ];
 
         let mj_blue_goal_geom_ids = [
-            model.name2id(mjtObj__mjOBJ_GEOM as i32, "right-goal-hole"),
-            model.name2id(mjtObj__mjOBJ_GEOM as i32, "right-goal-back"),
+            model.name2id(mjtObj::mjOBJ_GEOM as i32, "right-goal-hole"),
+            model.name2id(mjtObj::mjOBJ_GEOM as i32, "right-goal-back"),
         ];
 
         // Initialize internal player teams
@@ -640,7 +642,7 @@ impl FuzbAISimulator {
                 unsafe {
                     lodepng_encode_file(
                         CString::new(name).unwrap().as_ptr() as *const i8, image_i8.as_ptr(), r.width() as u32, r.height() as u32,
-                        LodePNGColorType_LCT_RGB, 8
+                        LodePNGColorType::Rgb, 8
                     );
                 }
             }
@@ -972,4 +974,28 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
     Ok(())
+}
+
+
+
+/* LODEPNG */
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub enum LodePNGColorType {
+    Grey = 0,
+    Rgb = 2,
+    Palette = 3,
+    GreyAlpha = 4,
+    Rgba = 6,
+}
+
+unsafe extern "C" {
+    pub fn lodepng_encode_file(
+        filename: *const c_char,
+        image: *const c_uchar,
+        w: c_uint,
+        h: c_uint,
+        colortype: LodePNGColorType,
+        bitdepth: c_uint,
+    ) -> c_uint;
 }

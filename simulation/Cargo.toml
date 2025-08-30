@@ -1,6 +1,6 @@
 [package]
 name = "fuzbai_simulator"
-version = "3.6.0"
+version = "3.7.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
@@ -8,14 +8,14 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = "0.24.2"
-mujoco_rs = {path = "../mujoco-rs-w/"}
+pyo3 = {version = "0.24.2", features = ["extension-module", "abi3-py38"]}
+mujoco_rs_w = {path = "../mujoco-rs-w/", features=["viewer"]}
 agent_rust = {path = "../fuzbai-agent/"}
 rand = "0.9.1"
 glfw = "0.59.0"
 
 [build-dependencies]
-mujoco_rs = {path = "../mujoco-rs-w/"}
+mujoco_rs_w = {path = "../mujoco-rs-w/", features=["viewer"]}
 
 [profile.release]
 opt-level = 3
