@@ -1,3 +1,6 @@
 [submodule "fuzbai-agent"]
 	path = fuzbai-agent
 	url = git@github.com:davidhozic/fuzbai-agent.git
+[submodule "mujoco-rs"]
+	path = mujoco-rs
+	url = git@github.com:davidhozic/mujoco-rs.git
