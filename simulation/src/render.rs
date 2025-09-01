@@ -1,7 +1,7 @@
 //! Rendering definitions
 use std::collections::VecDeque;
-use mujoco_rs_w::wrappers::*;
-use mujoco_rs_w::mujoco_c::*;
+use mujoco_rs::wrappers::*;
+use mujoco_rs::mujoco_c::*;
 use crate::constant::*;
 use std::ffi::CString;
 use crate::types::*;
@@ -78,14 +78,13 @@ impl<'m> Render<'m> {
     }
 
     pub fn render(&mut self) -> Vec<u16> {
-        // [[0; RENDER_MAX_WIDTH]; RENDER_MAX_HEIGHT]
-        let mut output;
+        let mut output = vec![0; self.rect.width as usize * self.rect.height as usize * 3];
         
         unsafe {
             glfw::ffi::glfwMakeContextCurrent(self.window);
         }
-
-        output = self.scene.render(&self.rect, &self.ctx);
+        self.scene.render(&self.rect, &self.ctx);
+        self.ctx.read_pixels(Some(&mut output), None, &self.rect);
 
         // flip image upside-down
         let row_size = self.width * 3;
@@ -103,13 +102,13 @@ impl<'m> Render<'m> {
 
     pub fn update_scene(&mut self, data: &mut MjData, camera_id: Option<isize>, camera_name: Option<String>) {
         let camera_id = if let Some(name) = camera_name {
-            self.model.name2id(mjtObj::mjOBJ_CAMERA as i32, &name)
+            self.model.name2id(mjtObj::mjOBJ_CAMERA, &name)
         } else {
             camera_id.unwrap_or(-1) as i32  // free camera
         };
 
         let mut camera = MjvCamera::new(camera_id as u32, mjtCamera::mjCAMERA_FIXED, self.model);
-        self.scene.update(data, &self.scene_opt, &mut camera);
+        self.scene.update(data, &self.scene_opt, &MjvPerturb::default(), &mut camera);
     }
 }
 

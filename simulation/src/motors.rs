@@ -1,5 +1,5 @@
 //! Implementation of the FuzbAI's motor system
-use mujoco_rs_w::wrappers::*;
+use mujoco_rs::wrappers::*;
 use crate::constant::LOW_TIMESTEP;
 
 
