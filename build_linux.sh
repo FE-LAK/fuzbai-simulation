@@ -18,7 +18,7 @@ CMAKE_ARGS=(
 
 
 # Build MuJoCo's libs
-cd mujoco-rs-w/mujoco/
+cd mujoco-rs/mujoco/
 cmake -B build -S . "${CMAKE_ARGS[@]}"
 cmake --build build --parallel --target libsimulate --config=Release
 sync
