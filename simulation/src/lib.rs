@@ -591,14 +591,14 @@ impl FuzbAISimulator {
     pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
         G_MJ_VIEWER.with_borrow_mut(|b| {
             if let Some(v) = b {
-                // let scene = v.user_scn_mut();
+                let scene = v.user_scn_mut();
 
                 if let Some(unwrapped_ball_xyz) = ball_xyz {
-                    // Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
+                    Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
                 }
 
                 if let Some(unwrapped_rot_tr) = rod_tr {
-                    // Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
+                    Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
                 }
 
                 // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
@@ -837,11 +837,11 @@ impl FuzbAISimulator {
         // Reset the viwer's scene and draw the trace.
         G_MJ_VIEWER.with_borrow_mut(|b| {
             if let Some(viewer) = b {
-                // let scene = viewer.user_scn_mut();
-                // scene.clear_geom();
+                let scene = viewer.user_scn_mut();
+                scene.clear_geom();
 
                 // Draw trace
-                // self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
+                self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
             }
         });
     }
