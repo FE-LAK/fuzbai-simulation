@@ -10,7 +10,7 @@ fn main() {
         VisualConfig::new(
             10, true,
             0xFF,
-            10, None
+            5, None
         )
     );
 
