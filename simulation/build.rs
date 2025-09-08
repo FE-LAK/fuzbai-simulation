@@ -1,6 +1,6 @@
 //! Build script for building
-extern crate mujoco_rs_w;
-use mujoco_rs_w::mujoco_c::*;
+extern crate mujoco_rs;
+use mujoco_rs::mujoco_c::*;
 use std::ffi::CString;
 use std::ptr;
 

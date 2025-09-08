@@ -1,8 +1,8 @@
-use mujoco_rs_w::mujoco_c::mjtObj;
+use mujoco_rs::mujoco_c::mjtObj;
 use agent_rust::Agent as BuiltInAgent;
-use mujoco_rs_w::viewer::MjViewer;
-use mujoco_rs_w::prelude::*;
-use mujoco_rs_w;
+use mujoco_rs::viewer::MjViewer;
+use mujoco_rs::prelude::*;
+use mujoco_rs;
 
 use std::os::raw::{c_char, c_uint, c_uchar};
 
@@ -179,13 +179,13 @@ pub struct FuzbAISimulator {
     /// View to the ball's joint data of mj_data.
     /// # SAFETY
     /// This needs to be dropped before mj_data.
-    mj_data_joint_ball: MjJointInfo,
+    mj_data_joint_ball: MjJointDataInfo,
 
     /// View to the ball's damping actuator.
     /// # SAFETY
     /// These need to be dropped before mj_data.
-    mj_data_act_ball_damp_x: MjActuatorInfo,
-    mj_data_act_ball_damp_y: MjActuatorInfo,
+    mj_data_act_ball_damp_x: MjActuatorDataInfo,
+    mj_data_act_ball_damp_y: MjActuatorDataInfo,
 
     /* Contact detection */
     mj_red_goal_geom_ids: [i32; 2],
@@ -243,10 +243,10 @@ impl FuzbAISimulator {
             G_MJ_VIEWER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
-                    let v = mujoco_rs_w::viewer::MjViewer::launch_passive(
-                        model, &mj_data,
+                    let v = mujoco_rs::viewer::MjViewer::launch_passive(
+                        model,
                         VIEWER_MAX_STATIC_SCENE_GEOM + visual_config.trace_length * TRACE_GEOM_LEN
-                    );
+                    ).unwrap();
                         *borrow = Some(v);
                     }
                 else {
@@ -264,14 +264,14 @@ impl FuzbAISimulator {
 
         // Find geom IDs of the individual goals. This is used for detecting scored goals.
         let mj_red_goal_geom_ids = [
-            model.name2id(mjtObj::mjOBJ_GEOM as i32, "left-goal-hole"),
-            model.name2id(mjtObj::mjOBJ_GEOM as i32, "left-goal-back"),
+            model.name2id(mjtObj::mjOBJ_GEOM, "left-goal-hole"),
+            model.name2id(mjtObj::mjOBJ_GEOM, "left-goal-back"),
             
         ];
 
         let mj_blue_goal_geom_ids = [
-            model.name2id(mjtObj::mjOBJ_GEOM as i32, "right-goal-hole"),
-            model.name2id(mjtObj::mjOBJ_GEOM as i32, "right-goal-back"),
+            model.name2id(mjtObj::mjOBJ_GEOM, "right-goal-hole"),
+            model.name2id(mjtObj::mjOBJ_GEOM, "right-goal-back"),
         ];
 
         // Initialize internal player teams
@@ -378,7 +378,7 @@ impl FuzbAISimulator {
     /// Checks if the viewier is still running. If the viewer is not running or has never been
     /// created, [`false`] is returned.
     pub fn viewer_running(&self) -> bool {
-        G_MJ_VIEWER.with_borrow(|b| {
+        G_MJ_VIEWER.with_borrow_mut(|b| {
             match b {
                 Some(x) => x.running(),
                 None => false
@@ -602,8 +602,7 @@ impl FuzbAISimulator {
                 }
 
                 // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
-                v.sync();
-                v.render(false);
+                v.sync(&mut self.mj_data);
             }
         });
     }
@@ -664,7 +663,7 @@ impl FuzbAISimulator {
         self.delayed_memory.clear();
         self.clear_trace();
 
-        self.mj_data_joint_ball.view_mut(&mut self.mj_data).reset();
+        self.mj_data_joint_ball.view_mut(&mut self.mj_data).zero();
         self.serve_ball(None);
         self.nudge_ball(None);
         self.mj_data.step1();
@@ -701,8 +700,7 @@ impl FuzbAISimulator {
                             return false;
                         }
 
-                        viewer.sync();
-                        viewer.render(true);
+                        viewer.sync(&mut self.mj_data);
                     }
                     while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {};  // Accurate timing
                 }

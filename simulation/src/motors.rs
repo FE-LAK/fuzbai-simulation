@@ -1,5 +1,5 @@
 //! Implementation of the FuzbAI's motor system
-use mujoco_rs_w::wrappers::*;
+use mujoco_rs::wrappers::*;
 use crate::constant::LOW_TIMESTEP;
 
 
@@ -9,8 +9,8 @@ pub(crate) struct TrapezoidMotorSystem {
     max_velocity: [f64; 8],
     max_acceleration: [f64; 8],
 
-    joint_info: [MjJointInfo; 8],
-    actuator_info: [MjActuatorInfo; 8],
+    joint_info: [MjJointDataInfo; 8],
+    actuator_info: [MjActuatorDataInfo; 8],
 
     // State
     target_velocity: [f64; 8],
@@ -28,8 +28,8 @@ impl TrapezoidMotorSystem {
     pub fn new(
         kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8],
         stop_threshold: f64, dead_band: [f64; 8],
-        joint_info: [MjJointInfo; 8],
-        actuator_info: [MjActuatorInfo; 8]
+        joint_info: [MjJointDataInfo; 8],
+        actuator_info: [MjActuatorDataInfo; 8]
     ) -> Self {
         let target_velocity: [f64; 8] = [0.0; 8];
         let target_pos = [0.0; 8];

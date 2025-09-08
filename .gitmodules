@@ -1,6 +1,7 @@
 [submodule "fuzbai-agent"]
 	path = fuzbai-agent
 	url = git@github.com:davidhozic/fuzbai-agent.git
-[submodule "mujoco-rs-w"]
-	path = mujoco-rs-w
-	url = git@github.com:davidhozic/mujoco-rs-w.git
+[submodule "mujoco"]
+	path = mujoco
+	url = git@github.com:davidhozic/mujoco.git
+	branch = feature/non-blocking-loop
