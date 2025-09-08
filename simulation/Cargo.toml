@@ -9,13 +9,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = {version = "0.24.2", features = ["extension-module", "abi3-py38"]}
-mujoco-rs = {path = "../mujoco-rs/"}
 agent_rust = {path = "../fuzbai-agent/"}
 rand = "0.9.1"
 glfw = "0.59.0"
+mujoco-rs = "1.1.0"
 
 [build-dependencies]
-mujoco-rs = {path = "../mujoco-rs/"}
+mujoco-rs = "1.1.0"
+
 
 [profile.release]
 opt-level = 3
