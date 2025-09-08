@@ -18,7 +18,7 @@ CMAKE_ARGS=(
 
 
 # Build MuJoCo's libs
-cd mujoco-rs/mujoco/
+cd mujoco/
 cmake -B build -S . "${CMAKE_ARGS[@]}"
 cmake --build build --parallel --target libsimulate --config=Release
 sync
@@ -27,7 +27,7 @@ cd $CWD
 
 # Build the simulator
 cd simulation/
-MUJOCO_STATIC_LINK_LIB=../mujoco-rs-w/mujoco/build/lib/ maturin build -r
+MUJOCO_STATIC_LINK_LIB=../mujoco/build/lib/ maturin build -r
 sync
 cd $CWD
 

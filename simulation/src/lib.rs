@@ -179,13 +179,13 @@ pub struct FuzbAISimulator {
     /// View to the ball's joint data of mj_data.
     /// # SAFETY
     /// This needs to be dropped before mj_data.
-    mj_data_joint_ball: MjJointInfo,
+    mj_data_joint_ball: MjJointDataInfo,
 
     /// View to the ball's damping actuator.
     /// # SAFETY
     /// These need to be dropped before mj_data.
-    mj_data_act_ball_damp_x: MjActuatorInfo,
-    mj_data_act_ball_damp_y: MjActuatorInfo,
+    mj_data_act_ball_damp_x: MjActuatorDataInfo,
+    mj_data_act_ball_damp_y: MjActuatorDataInfo,
 
     /* Contact detection */
     mj_red_goal_geom_ids: [i32; 2],
@@ -663,7 +663,7 @@ impl FuzbAISimulator {
         self.delayed_memory.clear();
         self.clear_trace();
 
-        self.mj_data_joint_ball.view_mut(&mut self.mj_data).reset();
+        self.mj_data_joint_ball.view_mut(&mut self.mj_data).zero();
         self.serve_ball(None);
         self.nudge_ball(None);
         self.mj_data.step1();
