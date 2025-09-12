@@ -27,7 +27,7 @@ cd $CWD
 
 # Build the simulator
 cd simulation/
-MUJOCO_STATIC_LINK_LIB=../mujoco/build/lib/ maturin build -r
+MUJOCO_STATIC_LINK_DIR=$(realpath "../mujoco/build/lib/") maturin build -r
 sync
 cd $CWD
 
