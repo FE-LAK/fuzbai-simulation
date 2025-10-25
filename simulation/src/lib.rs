@@ -1,11 +1,8 @@
-use mujoco_rs::mujoco_c::mjtObj;
 use agent_rust::Agent as BuiltInAgent;
 use mujoco_rs::renderer::MjRenderer;
 use mujoco_rs::viewer::MjViewer;
 use mujoco_rs::prelude::*;
 use mujoco_rs;
-
-use std::os::raw::{c_char, c_uint, c_uchar};
 
 use std::collections::VecDeque;
 use std::cell::RefCell;
@@ -267,14 +264,14 @@ impl FuzbAISimulator {
 
         // Find geom IDs of the individual goals. This is used for detecting scored goals.
         let mj_red_goal_geom_ids = [
-            model.name_to_id(mjtObj::mjOBJ_GEOM, "left-goal-hole"),
-            model.name_to_id(mjtObj::mjOBJ_GEOM, "left-goal-back"),
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-hole"),
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-back"),
             
         ];
 
         let mj_blue_goal_geom_ids = [
-            model.name_to_id(mjtObj::mjOBJ_GEOM, "right-goal-hole"),
-            model.name_to_id(mjtObj::mjOBJ_GEOM, "right-goal-back"),
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-hole"),
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-back"),
         ];
 
         // Initialize internal player teams
@@ -973,29 +970,4 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
     Ok(())
-}
-
-
-
-/* LODEPNG */
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub enum LodePNGColorType {
-    Grey = 0,
-    Rgb = 2,
-    Palette = 3,
-    GreyAlpha = 4,
-    Rgba = 6,
-}
-
-unsafe extern "C" {
-    #[link_name = "_Z19lodepng_encode_filePKcPKhjj16LodePNGColorTypej"]
-    pub fn lodepng_encode_file(
-        filename: *const c_char,
-        image: *const c_uchar,
-        w: c_uint,
-        h: c_uint,
-        colortype: LodePNGColorType,
-        bitdepth: c_uint,
-    ) -> c_uint;
 }

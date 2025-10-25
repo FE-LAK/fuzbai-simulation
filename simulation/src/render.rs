@@ -1,12 +1,14 @@
 //! Rendering definitions
+use mujoco_rs::wrappers::fun::*;
+use mujoco_rs::wrappers::*;
+
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use mujoco_rs::wrappers::*;
-use mujoco_rs::mujoco_c::*;
+use core::f64;
+
 use crate::constant::*;
 use crate::types::*;
-use core::f64;
 
 
 /// Records and renders trace of XYZ data. Also allows rendering of ball and rod estimates.
@@ -61,7 +63,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                 // Position and orient the capsule in such way that it
                 // connects the previous and current ball position
                 scene.create_geom(
-                    mjtGeom::mjGEOM_CAPSULE, None, None,
+                    MjtGeom::mjGEOM_CAPSULE, None, None,
                     None, Some(ball_rgba)
                 ).connect(BALL_TRACE_RADIUS, state_prev.0, state.0);
             }
@@ -90,7 +92,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
         ];
 
         scene.create_geom(
-            mjtGeom::mjGEOM_SPHERE, Some([BALL_RADIUS_M, 0.0, 0.0]),
+            MjtGeom::mjGEOM_SPHERE, Some([BALL_RADIUS_M, 0.0, 0.0]),
             Some(position_global), None, Some(color)
         );        
     }
@@ -112,15 +114,12 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
         for (i, t, r, player_mask) in pos_rot {
             first_position = ROD_TRAVELS[i] * (1.0 - t) + ROD_FIRST_OFFSET[i];
             pos_xyz = ROD_POSITIONS[i];
-            unsafe {
-                mju_axisAngle2Quat(
-                    quat.as_mut_ptr(),
-                    [0.0, 1.0, 0.0].as_ptr(),
-                    r * f64::consts::PI / 32.0
-                );
-                mju_quat2Mat(mat.as_mut_ptr(), quat.as_ptr());
-            }
 
+            // Calculate the rotation matrix based on the observed angle.
+            mju_axis_angle_2_quat(&mut quat, &[0.0, 1.0, 0.0], r * f64::consts::PI / 32.0);
+            mju_quat_2_mat(&mut mat, &quat);
+
+            // Render for configured players on each rod.
             for p in 0..ROD_N_PLAYERS[i] {
                 // P'th player is not enabled for drawing.
                 // p is subtracted from the maximum index because player_mask is in
@@ -136,12 +135,12 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                 // Rotation will affect the geom relative to it's MuJoCo geom coordinate system, however
                 // we want to rotate around the actual rod. We offset the geom away from the rod exactly
                 // ``ROD_ESTIMATE_FRAME_UPPER_OFFSET`` in the rotated direction.
-                offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_UPPER_OFFSET];
-                unsafe {mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr())};
+                offset_xyz = [0.0; 3];
+                mju_mul_mat_vec_3(&mut offset_xyz, &mat, &[0.0, 0.0, ROD_ESTIMATE_FRAME_UPPER_OFFSET]);
                 pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
 
                 vgeom = scene.create_geom(
-                    mjtGeom::mjGEOM_MESH, None, Some(pos_trans),
+                    MjtGeom::mjGEOM_MESH, None, Some(pos_trans),
                     Some(mat), Some(color)
                 );
 
@@ -155,18 +154,17 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                 mat_bottom = [0.0; 9];
 
                 // Rotate the bottom part 90 degrees around x first, then apply the joint rotation
-                unsafe {mju_mulMatMat(
-                    mat_bottom.as_mut_ptr(),
-                    mat.as_ptr(), ROD_BOTTOM_PRE_ROTATION_MAT.as_ptr(),
+                mju_mul_mat_mat(
+                    &mut mat_bottom,
+                    &mat, &ROD_BOTTOM_PRE_ROTATION_MAT,
                     3, 3, 3
-                )};
+                );
 
-                offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_LOWER_OFFSET];
-                unsafe{mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr())};
-
+                offset_xyz = [0.0; 3];
+                mju_mul_mat_vec_3(&mut offset_xyz, &mat, &[0.0, 0.0, ROD_ESTIMATE_FRAME_LOWER_OFFSET]);
                 pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
                 vgeom = scene.create_geom(
-                    mjtGeom::mjGEOM_MESH, None, Some(pos_trans),
+                    MjtGeom::mjGEOM_MESH, None, Some(pos_trans),
                     Some(mat_bottom), Some(color)
                 );
                 vgeom.dataid = ROD_MESH_LOWER_PLAYER_ID * 2;
