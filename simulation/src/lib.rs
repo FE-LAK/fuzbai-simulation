@@ -1,5 +1,6 @@
 use mujoco_rs::mujoco_c::mjtObj;
 use agent_rust::Agent as BuiltInAgent;
+use mujoco_rs::renderer::MjRenderer;
 use mujoco_rs::viewer::MjViewer;
 use mujoco_rs::prelude::*;
 use mujoco_rs;
@@ -10,7 +11,6 @@ use std::collections::VecDeque;
 use std::cell::RefCell;
 use std::sync::OnceLock;
 use std::time::Instant;
-use std::ffi::CString;
 use core::f64;
 
 use rand::distr::{Distribution, Uniform};
@@ -41,7 +41,7 @@ thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
-    pub static G_MJ_VIEWER: RefCell<Option<MjViewer<'static>>> = RefCell::new(None);
+    pub static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
 }
 
 
@@ -121,12 +121,7 @@ impl VisualConfig {
 
 /// High level simulation wrapping the MuJoCo physical
 /// simulation of the table football.
-/// # SAFETY
-/// This is NOT THREAD-SAFE. This is due to [`MjData`] not being thread-safe even though
-/// it passes the checks. Several bypasses were made for performance reasons as it is not meant
-/// to be shared between threads. However, multiple [`FuzbAISimulator`] instances can be made
-/// safely in individual threads or within the same thread.
-#[pyclass(module = "fuzbai_simulator")]
+#[pyclass(module = "fuzbai_simulator", unsendable)]
 pub struct FuzbAISimulator {
     // Parameter data
     internal_step_factor: usize,
@@ -174,7 +169,7 @@ pub struct FuzbAISimulator {
     /// This is not meant to be used in multiple threads and is thus .
     /// Additionally, due to interaction with C code, special care must be taken into
     /// account.
-    mj_data: MjData<'static>,
+    mj_data: MjData<&'static MjModel>,
 
     /// View to the ball's joint data of mj_data.
     /// # SAFETY
@@ -199,12 +194,12 @@ pub struct FuzbAISimulator {
     pending_motor_cmd_blue: Vec<MotorCommand>,
     red_builtin_player: BuiltInAgent,
     blue_builtin_player: BuiltInAgent,
-    trans_motor_ctrl: TrapezoidMotorSystem,
-    rot_motor_ctrl: TrapezoidMotorSystem,
+    trans_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
+    rot_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
 
     /* Visualization */
-    renderer: Option<Render<'static>>,
-    visualizer: Visualizer
+    visualizer: Visualizer<&'static MjModel>,
+    renderer: Option<MjRenderer<&'static MjModel>>
 }
 
 
@@ -239,21 +234,29 @@ impl FuzbAISimulator {
         // from lagging behind one low-level step.
         mj_data.step1();
 
+        let trace_length = visual_config.trace_length;
         if realtime {
             G_MJ_VIEWER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
                     let v = mujoco_rs::viewer::MjViewer::launch_passive(
                         model,
-                        VIEWER_MAX_STATIC_SCENE_GEOM + visual_config.trace_length * TRACE_GEOM_LEN
+                        MAX_ESTIMATE_SCENE_GEOM + trace_length * TRACE_GEOM_LEN
                     ).unwrap();
-                        *borrow = Some(v);
-                    }
+                    *borrow = Some(v);
+                }
                 else {
                     panic!("multiple realtime (with-rendering) simulations requested!")
                 }
             });
         }
+
+        let renderer = if let Some((width, height)) = visual_config.screenshot_size {
+            Some(MjRenderer::new(
+                model, width, height,
+                MAX_ESTIMATE_SCENE_GEOM + trace_length * TRACE_GEOM_LEN
+            ).expect("failed to initalize renderer"))
+        } else { None };
 
         // Create views to MjData
         let mj_data_joint_ball = mj_data.joint("ball").unwrap();
@@ -264,14 +267,14 @@ impl FuzbAISimulator {
 
         // Find geom IDs of the individual goals. This is used for detecting scored goals.
         let mj_red_goal_geom_ids = [
-            model.name2id(mjtObj::mjOBJ_GEOM, "left-goal-hole"),
-            model.name2id(mjtObj::mjOBJ_GEOM, "left-goal-back"),
+            model.name_to_id(mjtObj::mjOBJ_GEOM, "left-goal-hole"),
+            model.name_to_id(mjtObj::mjOBJ_GEOM, "left-goal-back"),
             
         ];
 
         let mj_blue_goal_geom_ids = [
-            model.name2id(mjtObj::mjOBJ_GEOM, "right-goal-hole"),
-            model.name2id(mjtObj::mjOBJ_GEOM, "right-goal-back"),
+            model.name_to_id(mjtObj::mjOBJ_GEOM, "right-goal-hole"),
+            model.name_to_id(mjtObj::mjOBJ_GEOM, "right-goal-back"),
         ];
 
         // Initialize internal player teams
@@ -305,16 +308,6 @@ impl FuzbAISimulator {
             [0.0; 8],
             mj_data_joint_rod_rot, mj_data_act_rod_rot
         );
-
-        let trace_length = visual_config.trace_length;
-        let renderer = if let Some((width, height)) = visual_config.screenshot_size {
-            Some(Render::new(
-                model, width, height,
-                SCREENSHOT_MAX_ESTIMATE_SCENE_GEOM + trace_length * TRACE_GEOM_LEN
-            ))
-        } else {
-            None
-        };
 
         Self {
             internal_step_factor, sample_steps, simulated_delay_s, visual_config,
@@ -591,7 +584,7 @@ impl FuzbAISimulator {
     pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
         G_MJ_VIEWER.with_borrow_mut(|b| {
             if let Some(v) = b {
-                let scene = v.user_scn_mut();
+                let scene = v.user_scene_mut();
 
                 if let Some(unwrapped_ball_xyz) = ball_xyz {
                     Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
@@ -615,12 +608,25 @@ impl FuzbAISimulator {
     /// Finally, the image can be written to a file (`outfilename`) or else given as a return value.
     pub fn screenshot(
         &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>,
-        camera_id: Option<isize>, camera_name: Option<String>,
+        camera_id: Option<u32>, camera_name: Option<String>,
         outfilename: Option<String>,
-    ) -> Option<Vec<u16>> {
+    ) -> Option<&[u8]> {
         if let Some(r) = &mut self.renderer {
-            r.update_scene(&mut self.mj_data, camera_id, camera_name);
-            let scene = r.scene_mut();
+            if let Some(id) = camera_id {
+                r.set_camera(MjvCamera::new_fixed(id));
+            }
+            else if let Some(name) = camera_name {
+                let id = self.mj_data.model().name_to_id(MjtObj::mjOBJ_CAMERA, &name);
+                if id != -1 {
+                    r.set_camera(MjvCamera::new_fixed(id as u32));
+                }
+                else {
+                    panic!("{name} does not exist");
+                }
+            }
+
+            let scene = r.user_scene_mut();
+            scene.clear_geom();
 
             if let Some(unwrapped_ball_xyz) = ball_xyz {
                 Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
@@ -635,18 +641,13 @@ impl FuzbAISimulator {
             }
 
             self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
-            let image = r.render();
+            r.sync(&mut self.mj_data);
+            
             if let Some(name) = outfilename {
-                let image_i8: Vec<_> = image.iter().map(|x| *x as u8).collect();
-                unsafe {
-                    lodepng_encode_file(
-                        CString::new(name).unwrap().as_ptr() as *const i8, image_i8.as_ptr(), r.width() as u32, r.height() as u32,
-                        LodePNGColorType::Rgb, 8
-                    );
-                }
+                r.save_rgb(name).unwrap();
             }
             else {
-                return Some(image);
+                return r.rgb_flat();
             }
         }
         None
@@ -837,7 +838,7 @@ impl FuzbAISimulator {
         // Reset the viwer's scene and draw the trace.
         G_MJ_VIEWER.with_borrow_mut(|b| {
             if let Some(viewer) = b {
-                let scene = viewer.user_scn_mut();
+                let scene = viewer.user_scene_mut();
                 scene.clear_geom();
 
                 // Draw trace

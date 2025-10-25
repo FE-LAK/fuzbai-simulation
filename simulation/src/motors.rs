@@ -1,9 +1,11 @@
 //! Implementation of the FuzbAI's motor system
+use std::{marker::PhantomData, ops::Deref};
+
 use mujoco_rs::wrappers::*;
 use crate::constant::LOW_TIMESTEP;
 
 
-pub(crate) struct TrapezoidMotorSystem {
+pub(crate) struct TrapezoidMotorSystem<M: Deref<Target = MjModel>> {
     kp: [f64; 8],
     kd: [f64; 8],
     max_velocity: [f64; 8],
@@ -21,10 +23,13 @@ pub(crate) struct TrapezoidMotorSystem {
     // Stability
     direction: [f64; 8],
     stop_threshold: f64,
-    dead_band: [f64; 8]
+    dead_band: [f64; 8],
+
+    // Dummy for storing the generic type
+    phantom: PhantomData<M>
 }
 
-impl TrapezoidMotorSystem {
+impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
     pub fn new(
         kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8],
         stop_threshold: f64, dead_band: [f64; 8],
@@ -36,7 +41,8 @@ impl TrapezoidMotorSystem {
         let direction = [0.0; 8];
         Self {
             kp, kd, max_velocity, max_acceleration, joint_info, actuator_info,
-            target_velocity, target_pos, direction, stop_threshold, dead_band
+            target_velocity, target_pos, direction, stop_threshold, dead_band,
+            phantom: PhantomData
         }
     }
 
@@ -48,7 +54,7 @@ impl TrapezoidMotorSystem {
     }
 
     /// Updates the actuator states and the output torque
-    pub fn step(&mut self, data: &mut MjData) {
+    pub fn step(&mut self, data: &mut MjData<M>) {
         for act_id in 0..8 {
             let joint_view = self.joint_info[act_id].view_mut(data);
             let qpos = joint_view.qpos[0];
@@ -97,29 +103,29 @@ impl TrapezoidMotorSystem {
     }
 
     #[inline]
-    pub fn set_qpos(&mut self, data: &mut MjData, act_id: usize, value: f64) {
+    pub fn set_qpos(&mut self, data: &mut MjData<M>, act_id: usize, value: f64) {
         self.joint_info[act_id].view_mut(data).qpos[0] = value;
     }
 
     #[inline]
     #[allow(unused)]
-    pub fn set_qvel(&mut self, data: &mut MjData, act_id: usize, value: f64) {
+    pub fn set_qvel(&mut self, data: &mut MjData<M>, act_id: usize, value: f64) {
         self.joint_info[act_id].view_mut(data).qvel[0] = value;
     }
 
     #[inline]
-    pub fn qpos(&self, data: &MjData, act_id: usize) -> f64 {
+    pub fn qpos(&self, data: &MjData<M>, act_id: usize) -> f64 {
         self.joint_info[act_id].view(data).qpos[0]
     }
 
     #[inline]
-    pub fn qvel(&self, data: &MjData, act_id: usize) -> f64 {
+    pub fn qvel(&self, data: &MjData<M>, act_id: usize) -> f64 {
         self.joint_info[act_id].view(data).qvel[0]
     }
 
     /// Forcefully stops the actuator.
     #[inline]
-    pub fn force_stop(&mut self, act_id: usize, data: &mut MjData) {
+    pub fn force_stop(&mut self, act_id: usize, data: &mut MjData<M>) {
         let mut joint_view = self.joint_info[act_id].view_mut(data);
         joint_view.qvel[0] = 0.0;  // actual stop
         self.target_velocity[act_id] = 0.0;
@@ -131,7 +137,7 @@ impl TrapezoidMotorSystem {
     /// deceleration. If that is not possible, forcefully stop the motor at the current position.
     #[inline]
     #[allow(unused)]
-    pub fn check_reference(&mut self, data: &mut MjData) {
+    pub fn check_reference(&mut self, data: &mut MjData<M>) {
         for act_id in 0..8 {
             let qvel = self.qvel(data, act_id);
             let stop_dist = qvel * qvel / (2.0 * self.max_acceleration[act_id]);
