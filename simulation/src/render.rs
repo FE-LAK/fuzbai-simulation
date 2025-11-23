@@ -132,7 +132,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                 pos_trans = pos_xyz;
                 pos_trans[1] += dy;
 
-                // Rotation will affect the geom relative to it's MuJoCo geom coordinate system, however
+                // Rotation will affect the geom relative to its MuJoCo geom coordinate system, however
                 // we want to rotate around the actual rod. We offset the geom away from the rod exactly
                 // ``ROD_ESTIMATE_FRAME_UPPER_OFFSET`` in the rotated direction.
                 offset_xyz = [0.0; 3];

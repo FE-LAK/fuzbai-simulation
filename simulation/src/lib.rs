@@ -238,7 +238,7 @@ impl FuzbAISimulator {
                 if borrow.is_none() {
                     let v = mujoco_rs::viewer::MjViewer::launch_passive(
                         model,
-                        MAX_ESTIMATE_SCENE_GEOM + trace_length * TRACE_GEOM_LEN
+                        MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
                     ).unwrap();
                     *borrow = Some(v);
                 }
@@ -251,7 +251,7 @@ impl FuzbAISimulator {
         let renderer = if let Some((width, height)) = visual_config.screenshot_size {
             Some(MjRenderer::new(
                 model, width, height,
-                MAX_ESTIMATE_SCENE_GEOM + trace_length * TRACE_GEOM_LEN
+                MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
             ).expect("failed to initalize renderer"))
         } else { None };
 
