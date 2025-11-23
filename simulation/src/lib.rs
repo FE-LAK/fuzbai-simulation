@@ -252,7 +252,7 @@ impl FuzbAISimulator {
             Some(MjRenderer::new(
                 model, width, height,
                 MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
-            ).expect("failed to initalize renderer"))
+            ).expect("failed to initialize renderer"))
         } else { None };
 
         // Create views to MjData
