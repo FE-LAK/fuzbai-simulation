@@ -14,7 +14,7 @@ rand = "0.9.1"
 mujoco-rs = "2.0.0"
 
 [build-dependencies]
-mujoco-rs = "1.2.0"
+mujoco-rs = "2.0.0"
 
 
 [profile.release]
