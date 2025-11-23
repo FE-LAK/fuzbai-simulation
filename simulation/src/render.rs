@@ -1,135 +1,26 @@
 //! Rendering definitions
-use std::collections::VecDeque;
+use mujoco_rs::wrappers::fun::*;
 use mujoco_rs::wrappers::*;
-use mujoco_rs::mujoco_c::*;
-use crate::constant::*;
-use std::ffi::CString;
-use crate::types::*;
+
+use std::collections::VecDeque;
+use std::marker::PhantomData;
+use std::ops::Deref;
 use core::f64;
-use std::ptr;
 
-
-/// Struct encapsulating screenshot required functionality.
-pub struct Render<'m> {
-    width: usize,
-    height: usize,
-    scene: MjvScene<'m>,
-    scene_opt: MjvOption,
-    rect: MjrRectangle,
-    ctx: MjrContext,
-    window: *mut glfw::ffi::GLFWwindow,
-    owns_glfw: bool,
-    model: &'m MjModel
-}
-
-// We only use the raw pointer to check for previous OpenGL contexts to prevent
-// destroying OpenGL data when the C++ code uses it. This is technically not thread-safe
-// as OpenGL doesn't even allow usage outside the main thread (it seems like they tried to make the library unusable lol).
-unsafe impl Send for Render<'_> {}
-unsafe impl Sync for Render<'_> {}
-
-impl<'m> Render<'m> {
-    pub fn new(model: &'m MjModel, width: usize, height: usize, max_geom: usize) -> Self {
-        let scene = MjvScene::new(model, max_geom);
-        let mut ctx;
-        let window;
-        let options = MjvOption::default();
-        let owns_glfw;
-
-        unsafe {
-            let prev_ctx = glfw::ffi::glfwGetCurrentContext();
-            if prev_ctx.is_null() {
-                glfw::ffi::glfwInit();  // TODO: refactor simulate.cc to accept glfw separately
-                owns_glfw = true;
-            }
-            else {
-                owns_glfw = false;
-            }
-            glfw::ffi::glfwWindowHint(glfw::ffi::VISIBLE, 0);
-            window = glfw::ffi::glfwCreateWindow(
-                width as i32, height as i32, CString::new("empty window").unwrap().as_ptr(),
-                ptr::null_mut(), ptr::null_mut()
-            );
-
-            glfw::ffi::glfwMakeContextCurrent(window);
-            ctx = MjrContext::new(model);
-            ctx.offscreen();
-        }
-
-        Self {
-            width, height,
-            scene, scene_opt: options,
-            rect: MjrRectangle::new(0, 0, width as i32, height as i32),
-            ctx: ctx,
-            window: window,
-            owns_glfw,
-            model
-        }
-    }
-
-    #[inline]
-    pub fn width(&self) -> usize {self.width}
-
-    #[inline]
-    pub fn height(&self) -> usize {self.height}
-
-    pub fn scene_mut(&mut self) -> &mut MjvScene<'m> {
-        &mut self.scene
-    }
-
-    pub fn render(&mut self) -> Vec<u16> {
-        let mut output = vec![0; self.rect.width as usize * self.rect.height as usize * 3];
-        
-        unsafe {
-            glfw::ffi::glfwMakeContextCurrent(self.window);
-        }
-        self.scene.render(&self.rect, &self.ctx);
-        self.ctx.read_pixels(Some(&mut output), None, &self.rect);
-
-        // flip image upside-down
-        let row_size = self.width * 3;
-        for y in 0..(self.height / 2) {
-            let top: usize = y * row_size;
-            let bottom: usize = (self.height - 1 - y) * row_size;
-
-            for x in 0..row_size {
-                output.swap(top + x, bottom + x);
-            }
-        }
-
-        output.iter().map(|x| *x as u16).collect()
-    }
-
-    pub fn update_scene(&mut self, data: &mut MjData, camera_id: Option<isize>, camera_name: Option<String>) {
-        let camera_id = if let Some(name) = camera_name {
-            self.model.name2id(mjtObj::mjOBJ_CAMERA, &name)
-        } else {
-            camera_id.unwrap_or(-1) as i32  // free camera
-        };
-
-        let mut camera = MjvCamera::new(camera_id as u32, mjtCamera::mjCAMERA_FIXED, self.model);
-        self.scene.update(data, &self.scene_opt, &MjvPerturb::default(), &mut camera);
-    }
-}
-
-impl Drop for Render<'_> {
-    fn drop(&mut self) {
-        if self.owns_glfw {
-            unsafe { glfw::ffi::glfwTerminate() };
-        }
-    }
-}
+use crate::constant::*;
+use crate::types::*;
 
 
 /// Records and renders trace of XYZ data. Also allows rendering of ball and rod estimates.
-pub struct Visualizer {
+pub struct Visualizer<M: Deref<Target = MjModel>> {
     trace_buffer: VecDeque<TraceType>,
     trace_length: usize,
+    phantom: PhantomData<M>
 }
 
-impl Visualizer {
+impl<M: Deref<Target = MjModel>> Visualizer<M> {
     pub fn new(trace_length: usize) -> Self {
-        Self {trace_buffer: VecDeque::new(), trace_length}
+        Self {trace_buffer: VecDeque::new(), trace_length, phantom: PhantomData}
     }
 
     #[inline]
@@ -145,7 +36,7 @@ impl Visualizer {
         self.trace_buffer.clear();
     }
 
-    pub fn render_trace(&mut self, scene: &mut MjvScene, ball_trace: bool, trace_rod_mask: u64) {
+    pub fn render_trace(&mut self, scene: &mut MjvScene<M>, ball_trace: bool, trace_rod_mask: u64) {
         let mut ball_rgba: [f32; 4];
         let mut rod_rgba: [f32; 4];
         let mut coeff;
@@ -172,7 +63,7 @@ impl Visualizer {
                 // Position and orient the capsule in such way that it
                 // connects the previous and current ball position
                 scene.create_geom(
-                    mjtGeom::mjGEOM_CAPSULE, None, None,
+                    MjtGeom::mjGEOM_CAPSULE, None, None,
                     None, Some(ball_rgba)
                 ).connect(BALL_TRACE_RADIUS, state_prev.0, state.0);
             }
@@ -192,7 +83,7 @@ impl Visualizer {
     }
 
     /// Renders to `scene` the `position` as the ball's estimate.
-    pub fn render_ball_estimate(scene: &mut MjvScene, position: &XYZType, color: Option<RGBAType>) {
+    pub fn render_ball_estimate(scene: &mut MjvScene<M>, position: &XYZType, color: Option<RGBAType>) {
         let color = color.unwrap_or(DEFAULT_BALL_ESTIMATE_RGBA);
         let position_global = [
             (position[0] + 115.0) / 1000.0,
@@ -201,12 +92,12 @@ impl Visualizer {
         ];
 
         scene.create_geom(
-            mjtGeom::mjGEOM_SPHERE, Some([BALL_RADIUS_M, 0.0, 0.0]),
+            MjtGeom::mjGEOM_SPHERE, Some([BALL_RADIUS_M, 0.0, 0.0]),
             Some(position_global), None, Some(color)
         );        
     }
 
-    pub fn render_rods_estimates<T>(scene: &mut MjvScene, pos_rot: T, color: Option<RGBAType>)
+    pub fn render_rods_estimates<T>(scene: &mut MjvScene<M>, pos_rot: T, color: Option<RGBAType>)
         where T: IntoIterator<Item=(usize, f64, f64, u8)>
     {
         let mut first_position;
@@ -223,15 +114,12 @@ impl Visualizer {
         for (i, t, r, player_mask) in pos_rot {
             first_position = ROD_TRAVELS[i] * (1.0 - t) + ROD_FIRST_OFFSET[i];
             pos_xyz = ROD_POSITIONS[i];
-            unsafe {
-                mju_axisAngle2Quat(
-                    quat.as_mut_ptr(),
-                    [0.0, 1.0, 0.0].as_ptr(),
-                    r * f64::consts::PI / 32.0
-                );
-                mju_quat2Mat(mat.as_mut_ptr(), quat.as_ptr());
-            }
 
+            // Calculate the rotation matrix based on the observed angle.
+            mju_axis_angle_2_quat(&mut quat, &[0.0, 1.0, 0.0], r * f64::consts::PI / 32.0);
+            mju_quat_2_mat(&mut mat, &quat);
+
+            // Render for configured players on each rod.
             for p in 0..ROD_N_PLAYERS[i] {
                 // P'th player is not enabled for drawing.
                 // p is subtracted from the maximum index because player_mask is in
@@ -244,15 +132,15 @@ impl Visualizer {
                 pos_trans = pos_xyz;
                 pos_trans[1] += dy;
 
-                // Rotation will affect the geom relative to it's MuJoCo geom coordinate system, however
+                // Rotation will affect the geom relative to its MuJoCo geom coordinate system, however
                 // we want to rotate around the actual rod. We offset the geom away from the rod exactly
                 // ``ROD_ESTIMATE_FRAME_UPPER_OFFSET`` in the rotated direction.
-                offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_UPPER_OFFSET];
-                unsafe {mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr())};
+                offset_xyz = [0.0; 3];
+                mju_mul_mat_vec_3(&mut offset_xyz, &mat, &[0.0, 0.0, ROD_ESTIMATE_FRAME_UPPER_OFFSET]);
                 pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
 
                 vgeom = scene.create_geom(
-                    mjtGeom::mjGEOM_MESH, None, Some(pos_trans),
+                    MjtGeom::mjGEOM_MESH, None, Some(pos_trans),
                     Some(mat), Some(color)
                 );
 
@@ -266,18 +154,17 @@ impl Visualizer {
                 mat_bottom = [0.0; 9];
 
                 // Rotate the bottom part 90 degrees around x first, then apply the joint rotation
-                unsafe {mju_mulMatMat(
-                    mat_bottom.as_mut_ptr(),
-                    mat.as_ptr(), ROD_BOTTOM_PRE_ROTATION_MAT.as_ptr(),
+                mju_mul_mat_mat(
+                    &mut mat_bottom,
+                    &mat, &ROD_BOTTOM_PRE_ROTATION_MAT,
                     3, 3, 3
-                )};
+                );
 
-                offset_xyz = [0.0, 0.0, ROD_ESTIMATE_FRAME_LOWER_OFFSET];
-                unsafe{mju_mulMatVec3(offset_xyz.as_mut_ptr(), mat.as_ptr(), offset_xyz.as_ptr())};
-
+                offset_xyz = [0.0; 3];
+                mju_mul_mat_vec_3(&mut offset_xyz, &mat, &[0.0, 0.0, ROD_ESTIMATE_FRAME_LOWER_OFFSET]);
                 pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);
                 vgeom = scene.create_geom(
-                    mjtGeom::mjGEOM_MESH, None, Some(pos_trans),
+                    MjtGeom::mjGEOM_MESH, None, Some(pos_trans),
                     Some(mat_bottom), Some(color)
                 );
                 vgeom.dataid = ROD_MESH_LOWER_PLAYER_ID * 2;
