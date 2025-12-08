@@ -27,13 +27,13 @@ cd $CWD
 
 # Build the simulator
 cd simulation/
-MUJOCO_STATIC_LINK_DIR=$(realpath "../mujoco/build/lib/") maturin build -r
+RUSTFLAGS="-C linker-features=-lld" MUJOCO_STATIC_LINK_DIR=$(realpath "../mujoco/build/lib/") maturin build -r
 sync
 cd $CWD
 
 # Build built-in agent
 cd fuzbai-agent/
-maturin build -r
+RUSTFLAGS="-C linker-features=-lld" maturin build -r
 sync
 
 # Copy back built files
