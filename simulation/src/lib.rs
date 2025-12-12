@@ -11,6 +11,8 @@ use std::time::Instant;
 use core::f64;
 
 use rand::distr::{Distribution, Uniform};
+
+#[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
 use constant::*;
@@ -43,7 +45,7 @@ thread_local! {
 
 
 /* Enum definitions */
-#[pyclass(eq, eq_int, module = "fuzbai_simulator")]
+#[cfg_attr(feature = "python-bindings", pyclass(eq, eq_int, module = "fuzbai_simulator"))]
 #[derive(PartialEq, Clone)]
 #[repr(usize)] 
 /// Enumerates the two possible teams by color.
@@ -52,7 +54,7 @@ pub enum PlayerTeam {
     BLUE
 }
 
-
+#[cfg(feature = "python-bindings")]
 #[pymethods]
 /// Python methods for pickle support
 impl PlayerTeam {
@@ -83,7 +85,7 @@ impl PlayerTeam {
 /// * `refresh_steps` - How many low-level steps before re-rendering the viewer.
 /// * `screenshot_size` - Tuple of (width, height) for the offscreen renderer (for screenshots).
 ///                       Set to None if no `.screenshot` calls are required.
-#[pyclass(module = "fuzbai_simulator")]
+#[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
 #[derive(Clone)]
 pub struct VisualConfig {
     pub trace_length: usize,
@@ -93,9 +95,9 @@ pub struct VisualConfig {
     pub screenshot_size: Option<(usize, usize)>
 }
 
-#[pymethods]
+#[cfg_attr(feature = "python-bindings", pymethods)]
 impl VisualConfig {
-    #[new]
+    #[cfg_attr(feature = "python-bindings", new)]
     pub fn new(
         trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
         refresh_steps: usize, screenshot_size: Option<(usize, usize)>
@@ -106,7 +108,7 @@ impl VisualConfig {
     /// Creates the mask needed for [`VisualConfig.new`].
     /// To visualize multiple rods use the OR operator:
     /// `player_mask(0, vec![0]) | player_mask(2, vec![0, 2])`.
-    #[staticmethod]
+    #[cfg_attr(feature = "python-bindings", staticmethod)]
     pub fn player_mask(rod_index: usize, player_indices: Vec<usize>) -> u64 {
         let mut mask = 0;
         for index in player_indices {
@@ -116,9 +118,10 @@ impl VisualConfig {
     }
 }
 
+
 /// High level simulation wrapping the MuJoCo physical
 /// simulation of the table football.
-#[pyclass(module = "fuzbai_simulator", unsendable)]
+#[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator", unsendable))]
 pub struct FuzbAISimulator {
     // Parameter data
     internal_step_factor: usize,
@@ -200,10 +203,10 @@ pub struct FuzbAISimulator {
 }
 
 
-#[pymethods]
+#[cfg_attr(feature = "python-bindings", pymethods)]
 impl FuzbAISimulator {
     /// Constructs a new [`FuzbAISimulator`] instance.
-    #[new]
+    #[cfg_attr(feature = "python-bindings", new)]
     pub fn new(
         internal_step_factor: usize,
         sample_steps: usize,
@@ -323,47 +326,47 @@ impl FuzbAISimulator {
         }
     }
 
-    #[getter]
+    #[cfg_attr(feature = "python-bindings", getter)]
     #[inline]
     pub fn terminated(&self) -> bool {
         self.term
     }
 
-    #[getter]
+    #[cfg_attr(feature = "python-bindings", getter)]
     #[inline]
     pub fn truncated(&self) -> bool {
         self.trunc
     }
 
-    #[getter]
+    #[cfg_attr(feature = "python-bindings", getter)]
     #[inline]
     /// Returns the current score. The score is formatted as: [RED - BLUE].
     pub fn score(&self) -> [usize; 2] {
         self.score
     }
 
-    #[getter]
+    #[cfg_attr(feature = "python-bindings", getter)]
     #[inline]
     /// Returns the collision forces (relative to the red team).
     pub fn collision_forces(&self) -> [[f64; 4]; 8] {
         self.collision_forces
     }
 
-    #[getter]
+    #[cfg_attr(feature = "python-bindings", getter)]
     #[inline]
     /// Returns the collision indices (relative to the red team).
     pub fn collision_indices(&self) -> [isize; 8] {
         self.collision_indices
     }
 
-    #[getter]
+    #[cfg_attr(feature = "python-bindings", getter)]
     #[inline]
     /// Returns the configured simulated delay (in seconds).
     pub fn simulated_delay_s(&self) -> f64 {
         self.simulated_delay_s
     }
 
-    #[getter]
+    #[cfg_attr(feature = "python-bindings", getter)]
     #[inline]
     /// Checks if the viewier is still running. If the viewer is not running or has never been
     /// created, [`false`] is returned.
@@ -748,13 +751,13 @@ impl FuzbAISimulator {
     }
 
     /* Class-bound methods */
-    #[staticmethod]
+    #[cfg_attr(feature = "python-bindings", staticmethod)]
     #[inline]
     pub fn local_to_global_position(position: XYZType) -> XYZType {
         [(position[0] + 115.0) / 1000.0, (727.0 - position[1]) / 1000.0, position[2] / 1000.0 + Z_FIELD]
     }
 
-    #[staticmethod]
+    #[cfg_attr(feature = "python-bindings", staticmethod)]
     #[inline]
     pub fn local_to_global_velocity(velocity: XYZType) -> XYZType {
         [velocity[0], -velocity[1], velocity[2]]
@@ -763,7 +766,7 @@ impl FuzbAISimulator {
     /// Transforms local coordinates (from the read team) into Mujoco's global coordinate system.
     /// Method assumes that `position` is in mm, whilst the output is in m (as expected by MuJoCo).
     /// The `velocity` is in m/s and so is the output.
-    #[staticmethod]
+    #[cfg_attr(feature = "python-bindings", staticmethod)]
     #[inline]
     pub fn local_to_global(mut position: Option<XYZType>, mut velocity: Option<XYZType>) -> (Option<XYZType>, Option<XYZType>) {
         // Transform position
@@ -779,7 +782,7 @@ impl FuzbAISimulator {
     }
 
     /// Transforms the observation from the red's coordinate system into the blue's.
-    #[staticmethod]
+    #[cfg_attr(feature = "python-bindings", staticmethod)]
     fn transform_observation_red_to_blue(observation: ObservationType) -> ObservationType {
         let (
             mut ball_x, mut ball_y, mut ball_vx, mut ball_vy,
@@ -961,6 +964,7 @@ impl FuzbAISimulator {
     }
 }
 
+#[cfg(feature = "python-bindings")]
 #[pymodule]
 /// Python module definition
 fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -969,5 +973,6 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VisualConfig>()?;
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
+    // m.add_function(wrap_fu)?;
     Ok(())
 }
