@@ -1,12 +1,13 @@
-use agent_rust::Agent as BuiltInAgent;
+use mujoco_rs::viewer::{MjViewer, ViewerSharedState};
 use mujoco_rs::renderer::MjRenderer;
-use mujoco_rs::viewer::MjViewer;
 use mujoco_rs::prelude::*;
 use mujoco_rs;
 
-use std::collections::VecDeque;
+use agent_rust::Agent as BuiltInAgent;
+
+use std::sync::{Arc, OnceLock, Mutex};
+use std::{collections::VecDeque};
 use std::cell::RefCell;
-use std::sync::OnceLock;
 use std::time::Instant;
 use core::f64;
 
@@ -35,13 +36,13 @@ const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
 /// It is also required due to PyO3's aggressive checks for thread-safety and
 /// prohibition of Rust's lifetimes.
 pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
-
 thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
     pub static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
 }
+pub static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
 
 
 /* Enum definitions */
@@ -243,6 +244,8 @@ impl FuzbAISimulator {
                         model,
                         MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
                     ).unwrap();
+
+                    G_VIEWER_SHARED_STATE.set(v.state().clone()).expect("viewer is already initialized");
                     *borrow = Some(v);
                 }
                 else {
@@ -593,11 +596,17 @@ impl FuzbAISimulator {
                 if let Some(unwrapped_rot_tr) = rod_tr {
                     Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
                 }
-
-                // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
-                v.sync(&mut self.mj_data);
             }
         });
+    }
+
+    /// Syncs the simulation state with the viewer.
+    /// When viewer is not running, this has no effect.
+    pub fn sync_viewer(&mut self) {
+        let maybe_state = G_VIEWER_SHARED_STATE.get();
+        if let Some(state) = maybe_state {
+            state.lock().unwrap().sync_data(&mut self.mj_data);
+        }
     }
 
     /// Takes a screenshot of the current simulation state.
@@ -642,7 +651,7 @@ impl FuzbAISimulator {
 
             self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
             r.sync(&mut self.mj_data);
-            
+
             if let Some(name) = outfilename {
                 r.save_rgb(name).unwrap();
             }
@@ -701,7 +710,8 @@ impl FuzbAISimulator {
                             return false;
                         }
 
-                        viewer.sync(&mut self.mj_data);
+                        self.sync_viewer();
+                        viewer.render();
                     }
                     while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {};  // Accurate timing
                 }
@@ -962,6 +972,14 @@ impl FuzbAISimulator {
             break;
         }
     }
+}
+
+pub fn render_viewer() {
+    G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
+        if let Some(viewer) = maybe_viewer {
+            viewer.render();
+        }
+    })
 }
 
 #[cfg(feature = "python-bindings")]

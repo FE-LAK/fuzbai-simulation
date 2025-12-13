@@ -1,6 +1,9 @@
 #!/bin/bash
 # Script for building the FuzbAI simulator.
 
+COMPILER_C=clang-13
+COMPILER_CPP=clang++-13
+
 # Configuration
 CWD=$(pwd)
 CMAKE_ARGS=(
@@ -10,9 +13,10 @@ CMAKE_ARGS=(
     -DMUJOCO_BUILD_EXAMPLES:BOOL=OFF \
     -DBUILD_SHARED_LIBS:BOOL=OFF \
     -G Ninja \
-    -DCMAKE_C_COMPILER:STRING=clang-13 \
-    -DCMAKE_CXX_COMPILER:STRING=clang++-13 \
-    -DMUJOCO_HARDEN:BOOL=ON
+    -DCMAKE_C_COMPILER:STRING=$COMPILER_C \
+    -DCMAKE_CXX_COMPILER:STRING=$COMPILER_CPP \
+    -DMUJOCO_HARDEN:BOOL=ON \
+    -DCMAKE_INSTALL_LIBDIR=lib
 )
 
 # Build MuJoCo

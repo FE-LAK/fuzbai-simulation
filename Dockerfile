@@ -2,12 +2,8 @@
 # Docker file from MuJoCo-rs (https://github.com/davidhozic/mujoco-rs/blob/main/Dockerfile.ubuntu)
 FROM mujoco-build:latest
 
-
 ENV ENVIRONMENT_PATH=/root/env/
 WORKDIR $ENVIRONMENT_PATH
-
-# Install Rust
-RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 
 # Prepare Python
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
