@@ -83,7 +83,6 @@ impl PlayerTeam {
 /// the [`FuzbAISimulator`] struct.
 /// # Arguments
 /// * `trace_length` - How many previous ball positions should be visible.
-/// * `refresh_steps` - How many low-level steps before re-rendering the viewer.
 /// * `screenshot_size` - Tuple of (width, height) for the offscreen renderer (for screenshots).
 ///                       Set to None if no `.screenshot` calls are required.
 #[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
@@ -92,7 +91,6 @@ pub struct VisualConfig {
     pub trace_length: usize,
     pub trace_ball: bool,
     pub trace_rod_mask: u64,
-    pub refresh_steps: usize,
     pub screenshot_size: Option<(usize, usize)>
 }
 
@@ -101,9 +99,9 @@ impl VisualConfig {
     #[cfg_attr(feature = "python-bindings", new)]
     pub fn new(
         trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
-        refresh_steps: usize, screenshot_size: Option<(usize, usize)>
+        screenshot_size: Option<(usize, usize)>
     ) -> Self {
-        VisualConfig {trace_length, trace_ball, trace_rod_mask, refresh_steps, screenshot_size}
+        VisualConfig {trace_length, trace_ball, trace_rod_mask, screenshot_size}
     }
 
     /// Creates the mask needed for [`VisualConfig.new`].
@@ -193,14 +191,14 @@ pub struct FuzbAISimulator {
     /* Player control */
     pending_motor_cmd_red: Vec<MotorCommand>,
     pending_motor_cmd_blue: Vec<MotorCommand>,
-    red_builtin_player: BuiltInAgent,
-    blue_builtin_player: BuiltInAgent,
+    pub red_builtin_player: BuiltInAgent,
+    pub blue_builtin_player: BuiltInAgent,
     trans_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
     rot_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
 
     /* Visualization */
     visualizer: Visualizer<&'static MjModel>,
-    renderer: Option<MjRenderer<&'static MjModel>>
+    // renderer: Option<MjRenderer<&'static MjModel>>
 }
 
 
@@ -254,12 +252,12 @@ impl FuzbAISimulator {
             });
         }
 
-        let renderer = if let Some((width, height)) = visual_config.screenshot_size {
-            Some(MjRenderer::new(
-                model, width, height,
-                MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
-            ).expect("failed to initialize renderer"))
-        } else { None };
+        // let renderer = if let Some((width, height)) = visual_config.screenshot_size {
+        //     Some(MjRenderer::new(
+        //         model, width, height,
+        //         MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
+        //     ).expect("failed to initialize renderer"))
+        // } else { None };
 
         // Create views to MjData
         let mj_data_joint_ball = mj_data.joint("ball").unwrap();
@@ -325,7 +323,7 @@ impl FuzbAISimulator {
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
             mj_data_act_ball_damp_x, mj_data_act_ball_damp_y,
-            renderer, visualizer: Visualizer::new(trace_length)
+            visualizer: Visualizer::new(trace_length)
         }
     }
 
@@ -374,12 +372,10 @@ impl FuzbAISimulator {
     /// Checks if the viewier is still running. If the viewer is not running or has never been
     /// created, [`false`] is returned.
     pub fn viewer_running(&self) -> bool {
-        G_MJ_VIEWER.with_borrow_mut(|b| {
-            match b {
-                Some(x) => x.running(),
-                None => false
-            }
-        })
+        if let Some(state) = G_VIEWER_SHARED_STATE.get() && state.lock().unwrap().running() {
+            return true;
+        }
+        false
     }
 
     /// Returns the ball's TRUE state (without noise) in the format
@@ -585,19 +581,18 @@ impl FuzbAISimulator {
     /// where the translation is in normalized units [0..1] and the rotation is in range of
     /// [-64, 64], representing an entire circle (360 deg) in any direction.
     pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
-        G_MJ_VIEWER.with_borrow_mut(|b| {
-            if let Some(v) = b {
-                let scene = v.user_scene_mut();
+        if let Some(state) = G_VIEWER_SHARED_STATE.get() {
+            let mut lock = state.lock().unwrap();
+            let scene = lock.user_scene_mut();
 
-                if let Some(unwrapped_ball_xyz) = ball_xyz {
-                    Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
-                }
-
-                if let Some(unwrapped_rot_tr) = rod_tr {
-                    Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
-                }
+            if let Some(unwrapped_ball_xyz) = ball_xyz {
+                Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
             }
-        });
+
+            if let Some(unwrapped_rot_tr) = rod_tr {
+                Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
+            }
+        };
     }
 
     /// Syncs the simulation state with the viewer.
@@ -620,46 +615,47 @@ impl FuzbAISimulator {
         camera_id: Option<u32>, camera_name: Option<String>,
         outfilename: Option<String>,
     ) -> Option<&[u8]> {
-        if let Some(r) = &mut self.renderer {
-            if let Some(id) = camera_id {
-                r.set_camera(MjvCamera::new_fixed(id));
-            }
-            else if let Some(name) = camera_name {
-                let id = self.mj_data.model().name_to_id(MjtObj::mjOBJ_CAMERA, &name);
-                if id != -1 {
-                    r.set_camera(MjvCamera::new_fixed(id as u32));
-                }
-                else {
-                    panic!("{name} does not exist");
-                }
-            }
+        Some(&[])
+        // if let Some(r) = &mut self.renderer {
+        //     if let Some(id) = camera_id {
+        //         r.set_camera(MjvCamera::new_fixed(id));
+        //     }
+        //     else if let Some(name) = camera_name {
+        //         let id = self.mj_data.model().name_to_id(MjtObj::mjOBJ_CAMERA, &name);
+        //         if id != -1 {
+        //             r.set_camera(MjvCamera::new_fixed(id as u32));
+        //         }
+        //         else {
+        //             panic!("{name} does not exist");
+        //         }
+        //     }
 
-            let scene = r.user_scene_mut();
-            scene.clear_geom();
+        //     let scene = r.user_scene_mut();
+        //     scene.clear_geom();
 
-            if let Some(unwrapped_ball_xyz) = ball_xyz {
-                Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
-            }
+        //     if let Some(unwrapped_ball_xyz) = ball_xyz {
+        //         Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
+        //     }
 
-            if let Some(unwrapped_rod_tr) = rod_tr {
-                Visualizer::render_rods_estimates(
-                    scene,
-                    unwrapped_rod_tr,
-                    None
-                );
-            }
+        //     if let Some(unwrapped_rod_tr) = rod_tr {
+        //         Visualizer::render_rods_estimates(
+        //             scene,
+        //             unwrapped_rod_tr,
+        //             None
+        //         );
+        //     }
 
-            self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
-            r.sync(&mut self.mj_data);
+        //     self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
+        //     r.sync(&mut self.mj_data);
 
-            if let Some(name) = outfilename {
-                r.save_rgb(name).unwrap();
-            }
-            else {
-                return r.rgb_flat();
-            }
-        }
-        None
+        //     if let Some(name) = outfilename {
+        //         r.save_rgb(name).unwrap();
+        //     }
+        //     else {
+        //         return r.rgb_flat();
+        //     }
+        // }
+        // None
     }
 
     pub fn reset_simulation(&mut self) {
@@ -673,7 +669,7 @@ impl FuzbAISimulator {
         self.delayed_memory.clear();
         self.clear_trace();
 
-        self.mj_data_joint_ball.view_mut(&mut self.mj_data).zero();
+        self.mj_data.reset();
         self.serve_ball(None);
         self.nudge_ball(None);
         self.mj_data.step1();
@@ -703,20 +699,13 @@ impl FuzbAISimulator {
             self.update_collisions();
 
             // If realtime, sync the viewer's state with out simulation state
-            if !G_MJ_VIEWER.with_borrow_mut(|b| {
-                if let Some(viewer) = b {
-                    if self.visual_config.refresh_steps > 0 && self.current_ll_step % self.visual_config.refresh_steps == 0 {
-                        if !viewer.running() {  // Prevent calls after closing the UI
-                            return false;
-                        }
-
-                        self.sync_viewer();
-                        viewer.render();
-                    }
-                    while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {};  // Accurate timing
+            if let Some(viewer_state) = G_VIEWER_SHARED_STATE.get() {
+                {
+                    let mut lock = viewer_state.lock().unwrap();
+                    lock.sync_data(&mut self.mj_data);
                 }
-                true
-            }) {break;};  // break the simulation loop if the viewer has been closed
+                while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {}  // Accurate timing
+            };
         }
 
         self.update_visuals();
@@ -846,15 +835,14 @@ impl FuzbAISimulator {
         }
 
         // Reset the viwer's scene and draw the trace.
-        G_MJ_VIEWER.with_borrow_mut(|b| {
-            if let Some(viewer) = b {
-                let scene = viewer.user_scene_mut();
-                scene.clear_geom();
+        if let Some(state) = G_VIEWER_SHARED_STATE.get() {
+            let mut lock = state.lock().unwrap();
+            let scene = lock.user_scene_mut();
+            scene.clear_geom();
 
-                // Draw trace
-                self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
-            }
-        });
+            // Draw trace
+            self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
+        }
     }
 
     /// Applies either externally set motor commands ([`FuzbAISimulator::external_team_red`] = `true`) or fetches
@@ -978,6 +966,16 @@ pub fn render_viewer() {
     G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
         if let Some(viewer) = maybe_viewer {
             viewer.render();
+        }
+    })
+}
+
+pub fn render_viewer_loop() {
+    G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
+        if let Some(viewer) = maybe_viewer {
+            while viewer.running() {
+                viewer.render();
+            }
         }
     })
 }
