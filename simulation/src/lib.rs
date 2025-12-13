@@ -198,7 +198,6 @@ pub struct FuzbAISimulator {
 
     /* Visualization */
     visualizer: Visualizer<&'static MjModel>,
-    // renderer: Option<MjRenderer<&'static MjModel>>
 }
 
 
@@ -251,13 +250,6 @@ impl FuzbAISimulator {
                 }
             });
         }
-
-        // let renderer = if let Some((width, height)) = visual_config.screenshot_size {
-        //     Some(MjRenderer::new(
-        //         model, width, height,
-        //         MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
-        //     ).expect("failed to initialize renderer"))
-        // } else { None };
 
         // Create views to MjData
         let mj_data_joint_ball = mj_data.joint("ball").unwrap();
@@ -602,60 +594,6 @@ impl FuzbAISimulator {
         if let Some(state) = maybe_state {
             state.lock().unwrap().sync_data(&mut self.mj_data);
         }
-    }
-
-    /// Takes a screenshot of the current simulation state.
-    /// Parameters `ball_xyz` and `rod_tr` are optional and if not given, the delayed noisy estimates
-    /// will be displayed upon passing `show_estimates` as `true`. Passing `show_trace` as `true` will
-    /// draw past ball positions in the form of a line trace. Screenshots can be taken from any camera,
-    /// which can be selected either directly by id (`camera_id`) or indirectly via name (`camera_name`).
-    /// Finally, the image can be written to a file (`outfilename`) or else given as a return value.
-    pub fn screenshot(
-        &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>,
-        camera_id: Option<u32>, camera_name: Option<String>,
-        outfilename: Option<String>,
-    ) -> Option<&[u8]> {
-        Some(&[])
-        // if let Some(r) = &mut self.renderer {
-        //     if let Some(id) = camera_id {
-        //         r.set_camera(MjvCamera::new_fixed(id));
-        //     }
-        //     else if let Some(name) = camera_name {
-        //         let id = self.mj_data.model().name_to_id(MjtObj::mjOBJ_CAMERA, &name);
-        //         if id != -1 {
-        //             r.set_camera(MjvCamera::new_fixed(id as u32));
-        //         }
-        //         else {
-        //             panic!("{name} does not exist");
-        //         }
-        //     }
-
-        //     let scene = r.user_scene_mut();
-        //     scene.clear_geom();
-
-        //     if let Some(unwrapped_ball_xyz) = ball_xyz {
-        //         Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
-        //     }
-
-        //     if let Some(unwrapped_rod_tr) = rod_tr {
-        //         Visualizer::render_rods_estimates(
-        //             scene,
-        //             unwrapped_rod_tr,
-        //             None
-        //         );
-        //     }
-
-        //     self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
-        //     r.sync(&mut self.mj_data);
-
-        //     if let Some(name) = outfilename {
-        //         r.save_rgb(name).unwrap();
-        //     }
-        //     else {
-        //         return r.rgb_flat();
-        //     }
-        // }
-        // None
     }
 
     pub fn reset_simulation(&mut self) {

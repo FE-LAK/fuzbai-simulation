@@ -1,4 +1,4 @@
-use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, VisualConfig};
+use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, VisualConfig, render_viewer};
 use std::time::Instant;
 
 
@@ -10,7 +10,7 @@ fn main() {
         VisualConfig::new(
             10, true,
             0xFF,
-            5, None
+            None
         )
     );
 
@@ -25,6 +25,7 @@ fn main() {
             sim.reset_simulation();
         }
         sim.step_simulation();
+        render_viewer();
 
         let mut xyz: [f64; 3] = sim.ball_true_state()[..3].try_into().unwrap();
         xyz[2] = 0.0;
