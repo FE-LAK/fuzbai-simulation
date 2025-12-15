@@ -4,6 +4,7 @@ use mujoco_rs::wrappers::*;
 
 use std::collections::VecDeque;
 use std::marker::PhantomData;
+use std::borrow::Borrow;
 use std::ops::Deref;
 use core::f64;
 
@@ -98,7 +99,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
     }
 
     pub fn render_rods_estimates<T>(scene: &mut MjvScene<M>, pos_rot: T, color: Option<RGBAType>)
-        where T: IntoIterator<Item=(usize, f64, f64, u8)>
+        where T: IntoIterator, T::Item: Borrow<(usize, f64, f64, u8)>,
     {
         let mut first_position;
         let mut pos_xyz: [f64; 3];
@@ -111,24 +112,25 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
         let mut dy;
 
         let color = color.unwrap_or(DEFAULT_ROD_ESTIMATE_RGBA);
-        for (i, t, r, player_mask) in pos_rot {
-            first_position = ROD_TRAVELS[i] * (1.0 - t) + ROD_FIRST_OFFSET[i];
-            pos_xyz = ROD_POSITIONS[i];
+        for item in pos_rot {
+            let (i, t, r, player_mask) = item.borrow();
+            first_position = ROD_TRAVELS[*i] * (1.0 - t) + ROD_FIRST_OFFSET[*i];
+            pos_xyz = ROD_POSITIONS[*i];
 
             // Calculate the rotation matrix based on the observed angle.
             mju_axis_angle_2_quat(&mut quat, &[0.0, 1.0, 0.0], r * f64::consts::PI / 32.0);
             mju_quat_2_mat(&mut mat, &quat);
 
             // Render for configured players on each rod.
-            for p in 0..ROD_N_PLAYERS[i] {
+            for p in 0..ROD_N_PLAYERS[*i] {
                 // P'th player is not enabled for drawing.
                 // p is subtracted from the maximum index because player_mask is in
                 // red's local coordinate system.
-                if (1 << (ROD_N_PLAYERS[i] - p - 1)) & player_mask == 0 {
+                if (1 << (ROD_N_PLAYERS[*i] - p - 1)) & player_mask == 0 {
                     continue;
                 }
 
-                dy = first_position + ROD_SPACING[i] * p as f64;
+                dy = first_position + ROD_SPACING[*i] * p as f64;
                 pos_trans = pos_xyz;
                 pos_trans[1] += dy;
 

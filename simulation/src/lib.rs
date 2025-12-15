@@ -1,16 +1,18 @@
-use agent_rust::Agent as BuiltInAgent;
-use mujoco_rs::renderer::MjRenderer;
-use mujoco_rs::viewer::MjViewer;
+use mujoco_rs::viewer::{MjViewer, ViewerSharedState};
 use mujoco_rs::prelude::*;
 use mujoco_rs;
 
-use std::collections::VecDeque;
+use agent_rust::Agent as BuiltInAgent;
+
+use std::sync::{Arc, OnceLock, Mutex};
+use std::{collections::VecDeque};
 use std::cell::RefCell;
-use std::sync::OnceLock;
 use std::time::Instant;
 use core::f64;
 
 use rand::distr::{Distribution, Uniform};
+
+#[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
 use constant::*;
@@ -33,17 +35,17 @@ const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
 /// It is also required due to PyO3's aggressive checks for thread-safety and
 /// prohibition of Rust's lifetimes.
 pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
-
 thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
     pub static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
 }
+pub static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
 
 
 /* Enum definitions */
-#[pyclass(eq, eq_int, module = "fuzbai_simulator")]
+#[cfg_attr(feature = "python-bindings", pyclass(eq, eq_int, module = "fuzbai_simulator"))]
 #[derive(PartialEq, Clone)]
 #[repr(usize)] 
 /// Enumerates the two possible teams by color.
@@ -52,7 +54,7 @@ pub enum PlayerTeam {
     BLUE
 }
 
-
+#[cfg(feature = "python-bindings")]
 #[pymethods]
 /// Python methods for pickle support
 impl PlayerTeam {
@@ -78,36 +80,40 @@ impl PlayerTeam {
 
 /// Specifies visualization related parameters of 
 /// the [`FuzbAISimulator`] struct.
-/// # Arguments
-/// * `trace_length` - How many previous ball positions should be visible.
-/// * `refresh_steps` - How many low-level steps before re-rendering the viewer.
-/// * `screenshot_size` - Tuple of (width, height) for the offscreen renderer (for screenshots).
-///                       Set to None if no `.screenshot` calls are required.
-#[pyclass(module = "fuzbai_simulator")]
+#[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
 #[derive(Clone)]
 pub struct VisualConfig {
     pub trace_length: usize,
     pub trace_ball: bool,
     pub trace_rod_mask: u64,
-    pub refresh_steps: usize,
-    pub screenshot_size: Option<(usize, usize)>
 }
 
+#[cfg(feature = "python-bindings")]
 #[pymethods]
 impl VisualConfig {
     #[new]
+    pub fn py_new(trace_length: usize, trace_ball: bool, trace_rod_mask: u64) -> Self {
+        Self::new(trace_length, trace_ball, trace_rod_mask)
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "player_mask")]
+    pub fn py_player_mask(rod_index: usize, player_indices: Vec<usize>) -> u64 {
+        Self::player_mask(rod_index, &player_indices)
+    }
+}
+
+impl VisualConfig {
     pub fn new(
         trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
-        refresh_steps: usize, screenshot_size: Option<(usize, usize)>
     ) -> Self {
-        VisualConfig {trace_length, trace_ball, trace_rod_mask, refresh_steps, screenshot_size}
+        VisualConfig {trace_length, trace_ball, trace_rod_mask}
     }
 
     /// Creates the mask needed for [`VisualConfig.new`].
     /// To visualize multiple rods use the OR operator:
     /// `player_mask(0, vec![0]) | player_mask(2, vec![0, 2])`.
-    #[staticmethod]
-    pub fn player_mask(rod_index: usize, player_indices: Vec<usize>) -> u64 {
+    pub fn player_mask(rod_index: usize, player_indices: &[usize]) -> u64 {
         let mut mask = 0;
         for index in player_indices {
             mask |= 1 << index;
@@ -116,9 +122,10 @@ impl VisualConfig {
     }
 }
 
+
 /// High level simulation wrapping the MuJoCo physical
 /// simulation of the table football.
-#[pyclass(module = "fuzbai_simulator", unsendable)]
+#[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
 pub struct FuzbAISimulator {
     // Parameter data
     internal_step_factor: usize,
@@ -189,191 +196,53 @@ pub struct FuzbAISimulator {
     /* Player control */
     pending_motor_cmd_red: Vec<MotorCommand>,
     pending_motor_cmd_blue: Vec<MotorCommand>,
-    red_builtin_player: BuiltInAgent,
-    blue_builtin_player: BuiltInAgent,
+    pub red_builtin_player: BuiltInAgent,
+    pub blue_builtin_player: BuiltInAgent,
     trans_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
     rot_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
 
     /* Visualization */
-    visualizer: Visualizer<&'static MjModel>,
-    renderer: Option<MjRenderer<&'static MjModel>>
+    visualizer: Visualizer<&'static MjModel>
 }
 
 
-#[pymethods]
+#[cfg_attr(feature = "python-bindings", pymethods)]
 impl FuzbAISimulator {
-    /// Constructs a new [`FuzbAISimulator`] instance.
-    #[new]
-    pub fn new(
-        internal_step_factor: usize,
-        sample_steps: usize,
-        realtime: bool,
-        simulated_delay_s: f64,
-        model_path: Option<&str>,
-        visual_config: VisualConfig,
-    ) -> Self {
-        assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larget than {MAX_DELAY_S}");
-        assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
-
-        let model = G_MJ_MODEL.get_or_init(|| {
-            if let Some(path) = model_path {
-                MjModel::from_xml(path)
-            }
-            else {
-                MjModel::from_buffer(MJB_MODEL_DATA)
-            }
-            .expect("could not load the MuJoCo model")
-        });
-
-        let mut mj_data = model.make_data();
-        // Make sure we have forward kinematics calculated before doing any stepping (in case reset will not be called).
-        // In the step_simulation method we call step2 first and step1 after to prevent non-state attributes of MjData
-        // from lagging behind one low-level step.
-        mj_data.step1();
-
-        let trace_length = visual_config.trace_length;
-        if realtime {
-            G_MJ_VIEWER.with(|slot| {
-                let mut borrow = slot.borrow_mut();
-                if borrow.is_none() {
-                    let v = mujoco_rs::viewer::MjViewer::launch_passive(
-                        model,
-                        MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
-                    ).unwrap();
-                    *borrow = Some(v);
-                }
-                else {
-                    panic!("multiple realtime (with-rendering) simulations requested!")
-                }
-            });
-        }
-
-        let renderer = if let Some((width, height)) = visual_config.screenshot_size {
-            Some(MjRenderer::new(
-                model, width, height,
-                MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
-            ).expect("failed to initialize renderer"))
-        } else { None };
-
-        // Create views to MjData
-        let mj_data_joint_ball = mj_data.joint("ball").unwrap();
-        let mj_data_joint_rod_trans = std::array::from_fn(|i| mj_data.joint(&format!("p{}_slide", i+1)).unwrap());
-        let mj_data_joint_rod_rot = std::array::from_fn(|i| mj_data.joint(&format!("p{}_revolute", i+1)).unwrap());
-        let mj_data_act_rod_trans = std::array::from_fn(|i| mj_data.actuator(&format!("p{}_slide_ctrl", i+1)).unwrap());
-        let mj_data_act_rod_rot= std::array::from_fn(|i| mj_data.actuator(&format!("p{}_revolute_ctrl", i+1)).unwrap());
-
-        // Find geom IDs of the individual goals. This is used for detecting scored goals.
-        let mj_red_goal_geom_ids = [
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-hole"),
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-back"),
-            
-        ];
-
-        let mj_blue_goal_geom_ids = [
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-hole"),
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-back"),
-        ];
-
-        // Initialize internal player teams
-        let mut red_builtin_player = BuiltInAgent::new(simulated_delay_s);
-        let mut blue_builtin_player = BuiltInAgent::new(simulated_delay_s);
-
-        // When the simulation operates in discrete time (speed-up simulation),
-        // the built-in players must do the same.
-        if !realtime {
-            red_builtin_player.to_step_mode(LOW_TIMESTEP * internal_step_factor as f64);
-            blue_builtin_player.to_step_mode(LOW_TIMESTEP * internal_step_factor as f64);
-        }
-
-        let mj_data_act_ball_damp_x = mj_data.actuator("ball_damp_x").unwrap();
-        let mj_data_act_ball_damp_y = mj_data.actuator("ball_damp_y").unwrap();
-        let trans_motor_ctrl = TrapezoidMotorSystem::new(
-            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].0),
-            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].1),
-            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].2),
-            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].3),
-            0.005,
-            std::array::from_fn(|index| ROD_TRAVELS[index] * 0.005),
-            mj_data_joint_rod_trans, mj_data_act_rod_trans
-        );
-        let rot_motor_ctrl = TrapezoidMotorSystem::new(
-            std::array::from_fn(|index| ROD_ROT_PARAMS[index].0),
-            std::array::from_fn(|index| ROD_ROT_PARAMS[index].1),
-            std::array::from_fn(|index| ROD_ROT_PARAMS[index].2),
-            std::array::from_fn(|index| ROD_ROT_PARAMS[index].3),
-            10.0f64.to_radians(),
-            [0.0; 8],
-            mj_data_joint_rod_rot, mj_data_act_rod_rot
-        );
-
-        Self {
-            internal_step_factor, sample_steps, simulated_delay_s, visual_config,
-            mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
-            mj_red_goal_geom_ids, mj_blue_goal_geom_ids,
-            score: [0, 0], 
-            delayed_memory: VecDeque::new(),
-            ball_last_moving_t: 0.0,
-            external_team_red: true, external_team_blue: false,
-            term: true, trunc: false, current_time: 0.0, current_ll_step: 0,
-            collision_forces: [[0.0, 0.0, 0.0, 0.0]; 8], collision_indices: [-1; 8],
-            pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
-            red_builtin_player, blue_builtin_player,
-            mj_data_act_ball_damp_x, mj_data_act_ball_damp_y,
-            renderer, visualizer: Visualizer::new(trace_length)
-        }
-    }
-
-    #[getter]
-    #[inline]
     pub fn terminated(&self) -> bool {
         self.term
     }
 
-    #[getter]
-    #[inline]
     pub fn truncated(&self) -> bool {
         self.trunc
     }
 
-    #[getter]
-    #[inline]
     /// Returns the current score. The score is formatted as: [RED - BLUE].
     pub fn score(&self) -> [usize; 2] {
         self.score
     }
 
-    #[getter]
-    #[inline]
     /// Returns the collision forces (relative to the red team).
     pub fn collision_forces(&self) -> [[f64; 4]; 8] {
         self.collision_forces
     }
 
-    #[getter]
-    #[inline]
     /// Returns the collision indices (relative to the red team).
     pub fn collision_indices(&self) -> [isize; 8] {
         self.collision_indices
     }
 
-    #[getter]
-    #[inline]
     /// Returns the configured simulated delay (in seconds).
     pub fn simulated_delay_s(&self) -> f64 {
         self.simulated_delay_s
     }
 
-    #[getter]
-    #[inline]
     /// Checks if the viewier is still running. If the viewer is not running or has never been
     /// created, [`false`] is returned.
     pub fn viewer_running(&self) -> bool {
-        G_MJ_VIEWER.with_borrow_mut(|b| {
-            match b {
-                Some(x) => x.running(),
-                None => false
-            }
-        })
+        if let Some(state) = G_VIEWER_SHARED_STATE.get() && state.lock().unwrap().running() {
+            return true;
+        }
+        false
     }
 
     /// Returns the ball's TRUE state (without noise) in the format
@@ -440,14 +309,12 @@ impl FuzbAISimulator {
     }
 
     /// Sets the simulated delay (in seconds) to `simulated_delay_s`.
-    #[inline]
     pub fn set_simulated_delay(&mut self, simulated_delay_s: f64) {
         self.simulated_delay_s = simulated_delay_s;
         self.red_builtin_player.set_delay(simulated_delay_s);
         self.blue_builtin_player.set_delay(simulated_delay_s);
     }
 
-    #[inline]
     pub fn set_ball_damping(&mut self, damping: XYType) {
         self.mj_data_act_ball_damp_x.view_mut(&mut self.mj_data).ctrl[0] = damping[0];
         self.mj_data_act_ball_damp_y.view_mut(&mut self.mj_data).ctrl[0] = damping[1];
@@ -492,7 +359,6 @@ impl FuzbAISimulator {
 
     /// Configures whether the specific `team` should obtain commands externally (`enable` = `true`)
     /// or internally (`enable` = `false`, the agent is stored within the simulation).
-    #[inline]
     pub fn set_external_mode(&mut self, team: PlayerTeam, enable: bool) {
         if let PlayerTeam::RED = team {
             self.external_team_red = enable;
@@ -500,14 +366,6 @@ impl FuzbAISimulator {
         else {
             self.external_team_blue = enable;
         }
-    }
-
-    /// Sets new motor (rod movement) commands for the specified `team`.
-    /// The commands will be applied at the next call to [`step_simulation`](FuzbAISimulator::step_simulation)
-    #[inline]
-    pub fn set_motor_command(&mut self, commands: Vec<MotorCommand>, team: PlayerTeam) {
-        let pending_cmds = if let PlayerTeam::RED = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
-        *pending_cmds = commands;
     }
 
     /// Fills the delay buffer, allowing information to be fully delayed from the beginning of reset.
@@ -574,80 +432,13 @@ impl FuzbAISimulator {
         self.visualizer.clear_trace();
     }
 
-    /// Draws the ball's and the rods' estimated states to the viewer.
-    /// The ``rod_tr`` parameter is an array of ``[translation, rotation]``,
-    /// where the translation is in normalized units [0..1] and the rotation is in range of
-    /// [-64, 64], representing an entire circle (360 deg) in any direction.
-    pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
-        G_MJ_VIEWER.with_borrow_mut(|b| {
-            if let Some(v) = b {
-                let scene = v.user_scene_mut();
-
-                if let Some(unwrapped_ball_xyz) = ball_xyz {
-                    Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
-                }
-
-                if let Some(unwrapped_rot_tr) = rod_tr {
-                    Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
-                }
-
-                // Update here again to avoid waiting 2 ms (viewer updates at best after the low-level step).
-                v.sync(&mut self.mj_data);
-            }
-        });
-    }
-
-    /// Takes a screenshot of the current simulation state.
-    /// Parameters `ball_xyz` and `rod_tr` are optional and if not given, the delayed noisy estimates
-    /// will be displayed upon passing `show_estimates` as `true`. Passing `show_trace` as `true` will
-    /// draw past ball positions in the form of a line trace. Screenshots can be taken from any camera,
-    /// which can be selected either directly by id (`camera_id`) or indirectly via name (`camera_name`).
-    /// Finally, the image can be written to a file (`outfilename`) or else given as a return value.
-    pub fn screenshot(
-        &mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>,
-        camera_id: Option<u32>, camera_name: Option<String>,
-        outfilename: Option<String>,
-    ) -> Option<&[u8]> {
-        if let Some(r) = &mut self.renderer {
-            if let Some(id) = camera_id {
-                r.set_camera(MjvCamera::new_fixed(id));
-            }
-            else if let Some(name) = camera_name {
-                let id = self.mj_data.model().name_to_id(MjtObj::mjOBJ_CAMERA, &name);
-                if id != -1 {
-                    r.set_camera(MjvCamera::new_fixed(id as u32));
-                }
-                else {
-                    panic!("{name} does not exist");
-                }
-            }
-
-            let scene = r.user_scene_mut();
-            scene.clear_geom();
-
-            if let Some(unwrapped_ball_xyz) = ball_xyz {
-                Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
-            }
-
-            if let Some(unwrapped_rod_tr) = rod_tr {
-                Visualizer::render_rods_estimates(
-                    scene,
-                    unwrapped_rod_tr,
-                    None
-                );
-            }
-
-            self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
-            r.sync(&mut self.mj_data);
-            
-            if let Some(name) = outfilename {
-                r.save_rgb(name).unwrap();
-            }
-            else {
-                return r.rgb_flat();
-            }
+    /// Syncs the simulation state with the viewer.
+    /// When viewer is not running, this has no effect.
+    pub fn sync_viewer(&mut self) {
+        let maybe_state = G_VIEWER_SHARED_STATE.get();
+        if let Some(state) = maybe_state {
+            state.lock().unwrap().sync_data(&mut self.mj_data);
         }
-        None
     }
 
     pub fn reset_simulation(&mut self) {
@@ -661,7 +452,7 @@ impl FuzbAISimulator {
         self.delayed_memory.clear();
         self.clear_trace();
 
-        self.mj_data_joint_ball.view_mut(&mut self.mj_data).zero();
+        self.mj_data.reset();
         self.serve_ball(None);
         self.nudge_ball(None);
         self.mj_data.step1();
@@ -691,19 +482,13 @@ impl FuzbAISimulator {
             self.update_collisions();
 
             // If realtime, sync the viewer's state with out simulation state
-            if !G_MJ_VIEWER.with_borrow_mut(|b| {
-                if let Some(viewer) = b {
-                    if self.visual_config.refresh_steps > 0 && self.current_ll_step % self.visual_config.refresh_steps == 0 {
-                        if !viewer.running() {  // Prevent calls after closing the UI
-                            return false;
-                        }
-
-                        viewer.sync(&mut self.mj_data);
-                    }
-                    while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {};  // Accurate timing
+            if let Some(viewer_state) = G_VIEWER_SHARED_STATE.get() {
+                {
+                    let mut lock = viewer_state.lock().unwrap();
+                    lock.sync_data(&mut self.mj_data);
                 }
-                true
-            }) {break;};  // break the simulation loop if the viewer has been closed
+                while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {}  // Accurate timing
+            };
         }
 
         self.update_visuals();
@@ -747,14 +532,200 @@ impl FuzbAISimulator {
         }
     }
 
-    /* Class-bound methods */
+    /// Sets the actuator control parameters.
+    /// ``actuator_id`` of [0-7] represents translational actuators, ``actuator_id`` of [8-15]
+    /// represents rotational actuators.
+    pub fn _set_actuator_parameters(&mut self, mut actuator_id: usize, kp: f64, kd: f64, max_vel: f64, max_acc: f64) {
+        let controller = if actuator_id < 8 {  // translational
+            &mut self.trans_motor_ctrl
+        }
+        else {  // rotational
+            actuator_id -= 8;
+            &mut self.rot_motor_ctrl
+        };
+
+        controller.set_params(actuator_id, kp, kd, max_vel, max_acc);
+    }
+
+    /*
+    Python-specific methods that either can't be shared with Rust methods or
+    would cause Rust code to be inefficient when used in Rust-only.
+    */
+    #[cfg(feature = "python-bindings")]
+    #[new]
+    fn py_new(
+        internal_step_factor: usize,
+        sample_steps: usize,
+        realtime: bool,
+        simulated_delay_s: f64,
+        model_path: Option<&str>,
+        visual_config: VisualConfig
+    ) -> Self {
+        Self::new(internal_step_factor, sample_steps, realtime, simulated_delay_s, model_path, visual_config)
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "show_estimates")]
+    fn py_show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
+        Self::show_estimates(self, ball_xyz, rod_tr.as_deref());
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "local_to_global_position")]
     #[staticmethod]
+    fn py_local_to_global_position(position: XYZType) -> XYZType {
+        Self::local_to_global_position(position)
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "local_to_global_velocity")]
+    #[staticmethod]
+    fn py_local_to_global_velocity(velocity: XYZType) -> XYZType {
+        Self::local_to_global_velocity(velocity)
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "local_to_global")]
+    #[staticmethod]
+    fn py_local_to_global(position: Option<XYZType>, velocity: Option<XYZType>) -> (Option<XYZType>, Option<XYZType>) {
+        Self::local_to_global(position, velocity)
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "transform_observation_red_to_blue")]
+    #[staticmethod]
+    fn py_transform_observation_red_to_blue(observation: ObservationType) -> ObservationType {
+        Self::transform_observation_red_to_blue(observation)
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "set_motor_command")]
+    fn py_set_motor_command(&mut self, commands: Vec<MotorCommand>, team: PlayerTeam) { 
+        Self::set_motor_command(self, &commands, team);
+    }
+}
+
+/// Non-Python exposed methods
+impl FuzbAISimulator {
+    pub fn new(
+        internal_step_factor: usize,
+        sample_steps: usize,
+        realtime: bool,
+        simulated_delay_s: f64,
+        model_path: Option<&str>,
+        visual_config: VisualConfig,
+    ) -> Self {
+        assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larget than {MAX_DELAY_S}");
+        assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
+
+        let model = G_MJ_MODEL.get_or_init(|| {
+            if let Some(path) = model_path {
+                MjModel::from_xml(path)
+            }
+            else {
+                MjModel::from_buffer(MJB_MODEL_DATA)
+            }
+            .expect("could not load the MuJoCo model")
+        });
+
+        let mut mj_data = model.make_data();
+        // Make sure we have forward kinematics calculated before doing any stepping (in case reset will not be called).
+        // In the step_simulation method we call step2 first and step1 after to prevent non-state attributes of MjData
+        // from lagging behind one low-level step.
+        mj_data.step1();
+
+        let trace_length = visual_config.trace_length;
+        if realtime {
+            G_MJ_VIEWER.with(|slot| {
+                let mut borrow = slot.borrow_mut();
+                if borrow.is_none() {
+                    let v = mujoco_rs::viewer::MjViewer::launch_passive(
+                        model,
+                        MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
+                    ).unwrap();
+
+                    G_VIEWER_SHARED_STATE.set(v.state().clone()).expect("viewer is already initialized");
+                    *borrow = Some(v);
+                }
+                else {
+                    panic!("multiple realtime (with-rendering) simulations requested!")
+                }
+            });
+        };
+
+        // Create views to MjData
+        let mj_data_joint_ball = mj_data.joint("ball").unwrap();
+        let mj_data_joint_rod_trans = std::array::from_fn(|i| mj_data.joint(&format!("p{}_slide", i+1)).unwrap());
+        let mj_data_joint_rod_rot = std::array::from_fn(|i| mj_data.joint(&format!("p{}_revolute", i+1)).unwrap());
+        let mj_data_act_rod_trans = std::array::from_fn(|i| mj_data.actuator(&format!("p{}_slide_ctrl", i+1)).unwrap());
+        let mj_data_act_rod_rot= std::array::from_fn(|i| mj_data.actuator(&format!("p{}_revolute_ctrl", i+1)).unwrap());
+
+        // Find geom IDs of the individual goals. This is used for detecting scored goals.
+        let mj_red_goal_geom_ids = [
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-hole"),
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-back"),
+            
+        ];
+
+        let mj_blue_goal_geom_ids = [
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-hole"),
+            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-back"),
+        ];
+
+        // Initialize internal player teams
+        let mut red_builtin_player = BuiltInAgent::new(simulated_delay_s);
+        let mut blue_builtin_player = BuiltInAgent::new(simulated_delay_s);
+
+        // When the simulation operates in discrete time (speed-up simulation),
+        // the built-in players must do the same.
+        if !realtime {
+            red_builtin_player.to_step_mode(LOW_TIMESTEP * internal_step_factor as f64);
+            blue_builtin_player.to_step_mode(LOW_TIMESTEP * internal_step_factor as f64);
+        }
+
+        let mj_data_act_ball_damp_x = mj_data.actuator("ball_damp_x").unwrap();
+        let mj_data_act_ball_damp_y = mj_data.actuator("ball_damp_y").unwrap();
+        let trans_motor_ctrl = TrapezoidMotorSystem::new(
+            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].0),
+            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].1),
+            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].2),
+            std::array::from_fn(|index| ROD_TRANS_PARAMS[index].3),
+            0.005,
+            std::array::from_fn(|index| ROD_TRAVELS[index] * 0.005),
+            mj_data_joint_rod_trans, mj_data_act_rod_trans
+        );
+        let rot_motor_ctrl = TrapezoidMotorSystem::new(
+            std::array::from_fn(|index| ROD_ROT_PARAMS[index].0),
+            std::array::from_fn(|index| ROD_ROT_PARAMS[index].1),
+            std::array::from_fn(|index| ROD_ROT_PARAMS[index].2),
+            std::array::from_fn(|index| ROD_ROT_PARAMS[index].3),
+            10.0f64.to_radians(),
+            [0.0; 8],
+            mj_data_joint_rod_rot, mj_data_act_rod_rot
+        );
+
+        Self {
+            internal_step_factor, sample_steps, simulated_delay_s, visual_config,
+            mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
+            mj_red_goal_geom_ids, mj_blue_goal_geom_ids,
+            score: [0, 0], 
+            delayed_memory: VecDeque::new(),
+            ball_last_moving_t: 0.0,
+            external_team_red: true, external_team_blue: false,
+            term: true, trunc: false, current_time: 0.0, current_ll_step: 0,
+            collision_forces: [[0.0, 0.0, 0.0, 0.0]; 8], collision_indices: [-1; 8],
+            pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
+            red_builtin_player, blue_builtin_player,
+            mj_data_act_ball_damp_x, mj_data_act_ball_damp_y,
+            visualizer: Visualizer::new(trace_length),
+        }
+    }
+
     #[inline]
     pub fn local_to_global_position(position: XYZType) -> XYZType {
         [(position[0] + 115.0) / 1000.0, (727.0 - position[1]) / 1000.0, position[2] / 1000.0 + Z_FIELD]
     }
 
-    #[staticmethod]
     #[inline]
     pub fn local_to_global_velocity(velocity: XYZType) -> XYZType {
         [velocity[0], -velocity[1], velocity[2]]
@@ -763,7 +734,6 @@ impl FuzbAISimulator {
     /// Transforms local coordinates (from the read team) into Mujoco's global coordinate system.
     /// Method assumes that `position` is in mm, whilst the output is in m (as expected by MuJoCo).
     /// The `velocity` is in m/s and so is the output.
-    #[staticmethod]
     #[inline]
     pub fn local_to_global(mut position: Option<XYZType>, mut velocity: Option<XYZType>) -> (Option<XYZType>, Option<XYZType>) {
         // Transform position
@@ -779,8 +749,7 @@ impl FuzbAISimulator {
     }
 
     /// Transforms the observation from the red's coordinate system into the blue's.
-    #[staticmethod]
-    fn transform_observation_red_to_blue(observation: ObservationType) -> ObservationType {
+    pub fn transform_observation_red_to_blue(observation: ObservationType) -> ObservationType {
         let (
             mut ball_x, mut ball_y, mut ball_vx, mut ball_vy,
             rod_positions, rod_rotations
@@ -799,25 +768,34 @@ impl FuzbAISimulator {
         (ball_x, ball_y, ball_vx, ball_vy, rod_positions_out, rod_rotations_out)
     }
 
-    /// Sets the actuator control parameters.
-    /// ``actuator_id`` of [0-7] represents translational actuators, ``actuator_id`` of [8-15]
-    /// represents rotational actuators.
-    pub fn _set_actuator_parameters(&mut self, mut actuator_id: usize, kp: f64, kd: f64, max_vel: f64, max_acc: f64) {
-        let controller = if actuator_id < 8 {  // translational
-            &mut self.trans_motor_ctrl
-        }
-        else {  // rotational
-            actuator_id -= 8;
-            &mut self.rot_motor_ctrl
+    /// Draws the ball's and the rods' estimated states to the viewer.
+    /// The ``rod_tr`` parameter is an array of ``[translation, rotation]``,
+    /// where the translation is in normalized units [0..1] and the rotation is in range of
+    /// [-64, 64], representing an entire circle (360 deg) in any direction.
+    pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<&[(usize, f64, f64, u8)]>) {
+        if let Some(state) = G_VIEWER_SHARED_STATE.get() {
+            let mut lock = state.lock().unwrap();
+            let scene = lock.user_scene_mut();
+
+            if let Some(unwrapped_ball_xyz) = ball_xyz {
+                Visualizer::render_ball_estimate(scene, &unwrapped_ball_xyz, None);
+            }
+
+            if let Some(unwrapped_rot_tr) = rod_tr {
+                Visualizer::render_rods_estimates(scene, unwrapped_rot_tr, None);
+            }
         };
-
-        controller.set_params(actuator_id, kp, kd, max_vel, max_acc);
     }
-}
 
+    /// Sets new motor (rod movement) commands for the specified `team`.
+    /// The commands will be applied at the next call to [`step_simulation`](FuzbAISimulator::step_simulation)
+    pub fn set_motor_command(&mut self, commands: &[MotorCommand], team: PlayerTeam) {
+        let pending_cmds = if let PlayerTeam::RED = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
+        pending_cmds.clear();
+        pending_cmds.extend_from_slice(commands);
+        pending_cmds.shrink_to_fit();
+    }
 
-/// Non-Python exposed methods
-impl FuzbAISimulator {
     fn update_visuals(&mut self) {
         // Store trace. This is done regardless of the viewier's existence
         // to support screenshots outside an active viewer.
@@ -833,15 +811,14 @@ impl FuzbAISimulator {
         }
 
         // Reset the viwer's scene and draw the trace.
-        G_MJ_VIEWER.with_borrow_mut(|b| {
-            if let Some(viewer) = b {
-                let scene = viewer.user_scene_mut();
-                scene.clear_geom();
+        if let Some(state) = G_VIEWER_SHARED_STATE.get() {
+            let mut lock = state.lock().unwrap();
+            let scene = lock.user_scene_mut();
+            scene.clear_geom();
 
-                // Draw trace
-                self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
-            }
-        });
+            // Draw trace
+            self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
+        }
     }
 
     /// Applies either externally set motor commands ([`FuzbAISimulator::external_team_red`] = `true`) or fetches
@@ -961,6 +938,46 @@ impl FuzbAISimulator {
     }
 }
 
+
+/// Viewer proxy for controlling the viewer
+/// in an object-oriented fashion.
+/// It holds no storage as use of more than one viewer is not considered, nor
+/// does it make sense in any way.
+#[cfg_attr(feature = "python-bindings", pyclass)]
+pub struct ViewerProxy;
+
+#[cfg_attr(feature = "python-bindings", pymethods)]
+impl ViewerProxy {
+    pub fn running(&self) -> bool {
+        if let Some(state) = G_VIEWER_SHARED_STATE.get() && state.lock().unwrap().running() {
+            true
+        }
+        else {
+            false
+        }
+    }
+
+    pub fn render(&self) {
+        G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
+            if let Some(viewer) = maybe_viewer {
+                viewer.render();
+            }
+        })
+    }
+
+    pub fn render_loop(&self) {
+        G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
+            if let Some(viewer) = maybe_viewer {
+                while viewer.running() {
+                    viewer.render();
+                }
+            }
+        })
+    }
+}
+
+
+#[cfg(feature = "python-bindings")]
 #[pymodule]
 /// Python module definition
 fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -969,5 +986,6 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VisualConfig>()?;
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
+    // m.add_function(wrap_fu)?;
     Ok(())
 }

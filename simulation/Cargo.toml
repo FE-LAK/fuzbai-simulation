@@ -7,19 +7,15 @@ license = "MIT OR Apache-2.0"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+python-bindings = ["dep:pyo3"]
+
 [dependencies]
-pyo3 = {version = "0.24.2", features = ["extension-module", "abi3-py38"]}
+pyo3 = {version = "0.24.2", features = ["extension-module", "abi3-py38"], optional = true}
 agent_rust = {path = "../fuzbai-agent/"}
 rand = "0.9.1"
-mujoco-rs = "2.1.1"
+mujoco-rs = { version = "2.2.0", default-features = false, features = ["viewer", "viewer-ui"] }
+
 
 [build-dependencies]
-mujoco-rs = "2.1.1"
-
-
-[profile.release]
-opt-level = 3
-codegen-units = 1
-lto = "fat"
-panic = "abort"
-strip = "symbols"
+mujoco-rs = { version = "2.2.0", default-features = false, features = ["viewer", "viewer-ui"] }
