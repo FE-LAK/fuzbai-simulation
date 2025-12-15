@@ -15,7 +15,7 @@ pub(crate) const MAX_DELAY_BUFFER_LEN: usize = (MAX_DELAY_S / LOW_TIMESTEP + 1.0
 /// This can be used for local->global coordinate system transformations.
 pub const Z_FIELD: f64 = 0.174 + 0.0175;
 /// Upper Z-level below which the simulation is consider truncated (invalid state).
-pub const TRUNCATION_Z_LEVEL: f64 = -0.5;
+pub const TERMINATION_Z_LEVEL: f64 = -0.5;
 
 /// MuJoCo geom IDs in the format (min_idx, max_idx).
 /// They map collision on each player to the rod index (Indices of this array represent rods).

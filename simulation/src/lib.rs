@@ -137,9 +137,9 @@ pub struct FuzbAISimulator {
 
     /* Status flags */
     /// The simulation episode has ended (goal was scored).
-    term: bool,
+    terminated: bool,
     /// Simulation resulted in an invalid state (timeout, ball out of the field).
-    trunc: bool,
+    truncated: bool,
 
     /* Timing */
     /// The current timestep in the form of continuous time
@@ -209,11 +209,11 @@ pub struct FuzbAISimulator {
 #[cfg_attr(feature = "python-bindings", pymethods)]
 impl FuzbAISimulator {
     pub fn terminated(&self) -> bool {
-        self.term
+        self.terminated
     }
 
     pub fn truncated(&self) -> bool {
-        self.trunc
+        self.truncated
     }
 
     /// Returns the current score. The score is formatted as: [RED - BLUE].
@@ -236,13 +236,12 @@ impl FuzbAISimulator {
         self.simulated_delay_s
     }
 
-    /// Checks if the viewier is still running. If the viewer is not running or has never been
-    /// created, [`false`] is returned.
+    /// Checks if the viewier is still running.
     pub fn viewer_running(&self) -> bool {
-        if let Some(state) = G_VIEWER_SHARED_STATE.get() && state.lock().unwrap().running() {
-            return true;
-        }
-        false
+        G_VIEWER_SHARED_STATE.get().map_or(
+            false,  // if it doesn't exist, then it can't be running
+            |state| state.lock().unwrap().running()
+        )
     }
 
     /// Returns the ball's TRUE state (without noise) in the format
@@ -347,16 +346,6 @@ impl FuzbAISimulator {
         self.mj_data.step();
     }
 
-    /// Proxy method to the built-in player's `set_disabled` method.
-    pub fn set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: Vec<usize>) {
-        if let PlayerTeam::RED = team {
-            self.red_builtin_player.set_disabled(indices);
-        }
-        else {
-            self.blue_builtin_player.set_disabled(indices);
-        }
-    }
-
     /// Configures whether the specific `team` should obtain commands externally (`enable` = `true`)
     /// or internally (`enable` = `false`, the agent is stored within the simulation).
     pub fn set_external_mode(&mut self, team: PlayerTeam, enable: bool) {
@@ -442,8 +431,8 @@ impl FuzbAISimulator {
     }
 
     pub fn reset_simulation(&mut self) {
-        self.term = false;
-        self.trunc = false;
+        self.terminated = false;
+        self.truncated = false;
 
         self.current_time = 0.0;
         self.current_ll_step = 0;
@@ -503,14 +492,14 @@ impl FuzbAISimulator {
             // Blue scored a goal
             if self.mj_red_goal_geom_ids.iter().any(|&id| id == geom_id) {
                 self.score[1] += 1;
-                self.term = true;
+                self.terminated = true;
                 break;
             }
 
             // Red scored a goal
             else if self.mj_blue_goal_geom_ids.iter().any(|&id| id == geom_id) {
                 self.score[0] += 1;
-                self.term = true;
+                self.terminated = true;
                 break;
             }
         }
@@ -519,8 +508,8 @@ impl FuzbAISimulator {
         let ball_joint_view = self.mj_data_joint_ball.view(&self.mj_data);
         let ball_global_pos = ball_joint_view.qpos.as_ref();
         let ball_global_vel = ball_joint_view.qvel.as_ref();
-        if ball_global_pos[2] < TRUNCATION_Z_LEVEL {
-            self.term = true;
+        if ball_global_pos[2] < TERMINATION_Z_LEVEL {
+            self.terminated = true;
         }
 
         // Check if ball is moving
@@ -528,7 +517,7 @@ impl FuzbAISimulator {
             self.ball_last_moving_t = self.current_time;
         }
         else if self.current_time - self.ball_last_moving_t > BALL_MOVING_TIMEOUT_S {
-            self.trunc = true;
+            self.truncated = true;
         }
     }
 
@@ -603,6 +592,12 @@ impl FuzbAISimulator {
     fn py_set_motor_command(&mut self, commands: Vec<MotorCommand>, team: PlayerTeam) { 
         Self::set_motor_command(self, &commands, team);
     }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "set_built_in_disabled_rods")]
+    fn py_set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: Vec<usize>) {
+        Self::set_built_in_disabled_rods(self, team, &indices);
+    }
 }
 
 /// Non-Python exposed methods
@@ -639,11 +634,12 @@ impl FuzbAISimulator {
             G_MJ_VIEWER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
-                    let v = mujoco_rs::viewer::MjViewer::launch_passive(
-                        model,
-                        MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN
-                    ).unwrap();
-
+                    let v = mujoco_rs::viewer::MjViewer::builder()
+                        .vsync(true)
+                        .max_user_geoms(MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN)
+                        .warn_non_realtime(true)
+                        .window_name("FuzbAI Simulator")
+                    .build_passive(model).unwrap();
                     G_VIEWER_SHARED_STATE.set(v.state().clone()).expect("viewer is already initialized");
                     *borrow = Some(v);
                 }
@@ -712,7 +708,7 @@ impl FuzbAISimulator {
             delayed_memory: VecDeque::new(),
             ball_last_moving_t: 0.0,
             external_team_red: true, external_team_blue: false,
-            term: true, trunc: false, current_time: 0.0, current_ll_step: 0,
+            terminated: true, truncated: false, current_time: 0.0, current_ll_step: 0,
             collision_forces: [[0.0, 0.0, 0.0, 0.0]; 8], collision_indices: [-1; 8],
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
@@ -794,6 +790,16 @@ impl FuzbAISimulator {
         pending_cmds.clear();
         pending_cmds.extend_from_slice(commands);
         pending_cmds.shrink_to_fit();
+    }
+
+    /// Proxy method to the built-in player's `set_disabled` method.
+    pub fn set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: &[usize]) {
+        if let PlayerTeam::RED = team {
+            self.red_builtin_player.set_disabled(indices.into());
+        }
+        else {
+            self.blue_builtin_player.set_disabled(indices.into());
+        }
     }
 
     fn update_visuals(&mut self) {

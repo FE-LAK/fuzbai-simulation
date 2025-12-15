@@ -1,9 +1,11 @@
+use std::time::Duration;
+
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 
 
 fn main() {
     let mut sim = FuzbAISimulator::new(
-        10, 0,
+        5, 5,
         true,
         0.055,
         None,
