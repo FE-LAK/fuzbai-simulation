@@ -14,11 +14,8 @@ python-bindings = ["dep:pyo3"]
 pyo3 = {version = "0.24.2", features = ["extension-module", "abi3-py38"], optional = true}
 agent_rust = {path = "../fuzbai-agent/"}
 rand = "0.9.1"
-mujoco-rs = { version = "2.2.0", path = "../../mujoco-rs" }
+mujoco-rs = { version = "2.2.0", default-features = false, features = ["viewer", "viewer-ui"] }
+
 
 [build-dependencies]
-mujoco-rs = { path = "../../mujoco-rs", default-features = false }
-
-[profile.release]
-#opt-level = 3
-#lto = "fat"
+mujoco-rs = { version = "2.2.0", default-features = false, features = ["viewer", "viewer-ui"] }
