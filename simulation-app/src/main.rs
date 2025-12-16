@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex};
+use std::{cell::LazyCell, sync::{Arc, LazyLock, Mutex}};
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
 use actix_files::{Files};
 use actix_web::web;
-use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig, types::ObservationType};
+use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 use tokio::runtime::Builder;
 use serde::Serialize;
 use std::ops::Deref;
@@ -21,6 +21,7 @@ struct CameraData {
     ball_y: f64,
     ball_vx: f64,
     ball_vy: f64,
+    ball_size: f64,
     rod_position_calib: [f64; 8],
     rod_angle: [f64; 8],
 }
@@ -57,19 +58,19 @@ impl CameraState {
 /// Shared state between HTTP server and the simulation.
 struct TeamState {
     camera_state: Mutex<CameraState>,
-    team: PlayerTeam
+    team: Mutex<PlayerTeam>
 }
 
 
 fn main() {
     /* Initialize states for each team */
-    let red_state = Arc::new(TeamState {camera_state: Mutex::new(CameraState::new()), team: PlayerTeam::RED});
-    let blue_state = Arc::new(TeamState {camera_state: Mutex::new(CameraState::new()), team: PlayerTeam::BLUE});
-
-    let red_state_cloned = red_state.clone();
-    let blue_state_cloned = blue_state.clone();
+    let states = [
+        Arc::new(TeamState {camera_state: Mutex::new(CameraState::new()), team: Mutex::new(PlayerTeam::RED)}),
+        Arc::new(TeamState {camera_state: Mutex::new(CameraState::new()), team: Mutex::new(PlayerTeam::BLUE)})
+    ];
 
     /* Initialize tokio runtime and with it, the HTTP server */
+    let states_clone = states.clone();
     let tokio_handle = std::thread::spawn(move || {
         let runtime = Builder::new_current_thread()
             .worker_threads(NUM_TOKIO_THREADS)
@@ -77,7 +78,7 @@ fn main() {
             .build()
             .unwrap();
 
-        runtime.block_on(http_task(red_state_cloned, blue_state_cloned));
+        runtime.block_on(http_task(&states_clone));
     });
 
     /* Initialize simulation */
@@ -93,10 +94,8 @@ fn main() {
     );
 
     /* Start physics in another thread */
-    let red_state_cloned = red_state.clone();
-    let blue_state_cloned = blue_state.clone();
     let sim_thread = std::thread::spawn(move || {
-        simulation_thread(sim, red_state_cloned, blue_state_cloned);
+        simulation_thread(sim, &states);
     });
 
     /* Loop forever within Rust in the main thread and also without GIL */
@@ -109,7 +108,7 @@ fn main() {
 }
 
 
-fn simulation_thread(mut sim: FuzbAISimulator, red_state: Arc<TeamState>, blue_state: Arc<TeamState>) {
+fn simulation_thread(mut sim: FuzbAISimulator, states: &[Arc<TeamState>]) {
     sim.set_external_mode(PlayerTeam::RED,false);
     sim.set_external_mode(PlayerTeam::BLUE, true);
     while sim.viewer_running() {
@@ -118,26 +117,31 @@ fn simulation_thread(mut sim: FuzbAISimulator, red_state: Arc<TeamState>, blue_s
         }
         sim.step_simulation();
 
+        for state in states {
+            let team = state.team.lock().unwrap().deref().clone();
+            let observation = sim.delayed_observation(team, None);
+            let (
+                ball_x, ball_y, ball_vx, ball_vy,
+                rod_position_calib, rod_angle
+            ) = observation;
 
-        fn observation_to_camera_data(observation: ObservationType) -> CameraData {
-            let (x, y, vx, vy, rp, rr) = observation;
-            CameraData {cameraID: 0, ball_x: x, ball_y: y, ball_vx: vx, ball_vy: vy, rod_position_calib: rp, rod_angle: rr}
+            let camera_data_0 = CameraData {
+                cameraID: 0,
+                ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
+                rod_position_calib, rod_angle
+            };
+
+            // Assume the second camera gives the same results.
+            let camera_data_1 = CameraData {cameraID: 1, ..camera_data_0};
+
+            /* Update the state for the configured team */
+            state.camera_state.lock().unwrap().camData = [camera_data_0, camera_data_1];
         }
-
-        /* Copy red state */
-        let camera_data_0 = observation_to_camera_data(sim.delayed_observation(PlayerTeam::RED, None));
-        let camera_data_1 = CameraData { cameraID: 1, ..camera_data_0 };
-        red_state.camera_state.lock().unwrap().camData = [camera_data_0, camera_data_1];
-
-        /* Copy blue state */
-        let camera_data_0 = observation_to_camera_data(sim.delayed_observation(PlayerTeam::BLUE, None));
-        let camera_data_1 = CameraData { cameraID: 1, ..camera_data_0 };
-        blue_state.camera_state.lock().unwrap().camData = [camera_data_0, camera_data_1];
     }
 }
 
 
-async fn http_task(red_state: Arc<TeamState>, blue_state: Arc<TeamState>) {
+async fn http_task(states: &[Arc<TeamState>]) {
     let factory = |port, state: Arc<TeamState>| {
             HttpServer::new(move || {
             App::new()
@@ -155,11 +159,20 @@ async fn http_task(red_state: Arc<TeamState>, blue_state: Arc<TeamState>) {
     };
 
     let mut join_set = tokio::task::JoinSet::new();
-    join_set.spawn(factory(8080, red_state.clone()));
-    join_set.spawn(factory(8081, blue_state.clone()));
+    join_set.spawn(factory(8080, states[0].clone()));
+    join_set.spawn(factory(8081, states[1].clone()));
 
-    while let Some(_) = join_set.join_next().await {
-
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(r) => {
+                if let Err(err) = r {
+                    eprintln!("task errored: {err}");
+                }
+            },
+            Err(e) => {
+                eprintln!("join error: {e}");
+            }
+        }
     }
 }
 
