@@ -9,6 +9,8 @@ def physics(simulator: fs.FuzbAISimulator):
         # Terminated: goal scored or ball outside the field.
         # Truncated: ball stopped moving.
         if simulator.terminated() or simulator.truncated():
+            # Scored goals: [red, blue]
+            print(simulator.score())
             simulator.reset_simulation()  # Reset physics state.
 
         # Query delayed observation (actual measurement).
@@ -32,9 +34,6 @@ def physics(simulator: fs.FuzbAISimulator):
             #       Enable individual bits to enable display for individual figure.
             [(0, obs[4][0], 0.0, 0xFF)]
         )
-
-        # Scored goals: [red, blue]
-        print(simulator.score())
 
 
 # Create a simulation instance.
