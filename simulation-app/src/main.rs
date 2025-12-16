@@ -86,6 +86,7 @@ async fn http_task() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .service(camera_state)
+            .service(send_command)
             .service(competition)
             .service(
                 Files::new("/", "./www/")
@@ -117,6 +118,17 @@ async fn camera_state() -> impl Responder {
 
 #[get("/Competition")]
 async fn competition() -> impl Responder {
-    let json = r"{state: 2, time: 0, playerName: 'SimBlue', scorePlayer: 0, scoreFuzbAI: 0, level: 0, results: [] }";
+    let json: serde_json::Value = serde_json::json! {
+        {
+            "state": 2, "time": 0, "playerName": "SimBlue",
+            "scorePlayer": 0, "scoreFuzbAI": 0, "level": 0, "results": []
+        }
+    };
+
     HttpResponse::Ok().json(json)
+}
+
+#[post("/Motors/SendCommand")]
+async fn send_command() -> impl Responder {
+    HttpResponse::Ok()
 }
