@@ -11,7 +11,7 @@ fn main() {
         None,
         VisualConfig::new(
             10, true,
-            0,
+            0, true
         )
     );
 

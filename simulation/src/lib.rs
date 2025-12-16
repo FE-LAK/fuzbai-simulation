@@ -86,14 +86,15 @@ pub struct VisualConfig {
     pub trace_length: usize,
     pub trace_ball: bool,
     pub trace_rod_mask: u64,
+    pub enable_viewer: bool,
 }
 
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl VisualConfig {
     #[new]
-    pub fn py_new(trace_length: usize, trace_ball: bool, trace_rod_mask: u64) -> Self {
-        Self::new(trace_length, trace_ball, trace_rod_mask)
+    pub fn py_new(trace_length: usize, trace_ball: bool, trace_rod_mask: u64, enable_viewer: bool) -> Self {
+        Self::new(trace_length, trace_ball, trace_rod_mask, enable_viewer)
     }
 
     #[staticmethod]
@@ -105,9 +106,9 @@ impl VisualConfig {
 
 impl VisualConfig {
     pub fn new(
-        trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
+        trace_length: usize, trace_ball: bool, trace_rod_mask: u64, enable_viewer: bool
     ) -> Self {
-        VisualConfig {trace_length, trace_ball, trace_rod_mask}
+        VisualConfig {trace_length, trace_ball, trace_rod_mask, enable_viewer}
     }
 
     /// Creates the mask needed for [`VisualConfig.new`].
@@ -132,6 +133,7 @@ pub struct FuzbAISimulator {
     sample_steps: usize,
     simulated_delay_s: f64,
     visual_config: VisualConfig,
+    realtime: bool,
 
     // State data
 
@@ -476,8 +478,11 @@ impl FuzbAISimulator {
                     let mut lock = viewer_state.lock().unwrap();
                     lock.sync_data(&mut self.mj_data);
                 }
-                while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {}  // Accurate timing
             };
+
+            if self.realtime {
+                while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {}  // Accurate timing
+            }
         }
 
         self.update_visuals();
@@ -556,7 +561,7 @@ impl FuzbAISimulator {
     #[cfg(feature = "python-bindings")]
     #[pyo3(name = "show_estimates")]
     fn py_show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<Vec<(usize, f64, f64, u8)>>) {
-        Self::show_estimates(self, ball_xyz, rod_tr.as_deref());
+        self.show_estimates(ball_xyz, rod_tr.as_deref());
     }
 
     #[cfg(feature = "python-bindings")]
@@ -590,13 +595,13 @@ impl FuzbAISimulator {
     #[cfg(feature = "python-bindings")]
     #[pyo3(name = "set_motor_command")]
     fn py_set_motor_command(&mut self, commands: Vec<MotorCommand>, team: PlayerTeam) { 
-        Self::set_motor_command(self, &commands, team);
+        self.set_motor_command(&commands, team);
     }
 
     #[cfg(feature = "python-bindings")]
     #[pyo3(name = "set_built_in_disabled_rods")]
     fn py_set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: Vec<usize>) {
-        Self::set_built_in_disabled_rods(self, team, &indices);
+        self.set_built_in_disabled_rods(team, &indices);
     }
 }
 
@@ -630,7 +635,7 @@ impl FuzbAISimulator {
         mj_data.step1();
 
         let trace_length = visual_config.trace_length;
-        if realtime {
+        if visual_config.enable_viewer {
             G_MJ_VIEWER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
@@ -701,7 +706,7 @@ impl FuzbAISimulator {
         );
 
         Self {
-            internal_step_factor, sample_steps, simulated_delay_s, visual_config,
+            internal_step_factor, sample_steps, simulated_delay_s, visual_config, realtime,
             mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
             mj_red_goal_geom_ids, mj_blue_goal_geom_ids,
             score: [0, 0], 
@@ -713,7 +718,7 @@ impl FuzbAISimulator {
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
             mj_data_act_ball_damp_x, mj_data_act_ball_damp_y,
-            visualizer: Visualizer::new(trace_length),
+            visualizer: Visualizer::new(trace_length)
         }
     }
 
@@ -949,11 +954,17 @@ impl FuzbAISimulator {
 /// in an object-oriented fashion.
 /// It holds no storage as use of more than one viewer is not considered, nor
 /// does it make sense in any way.
-#[cfg_attr(feature = "python-bindings", pyclass)]
+#[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
 pub struct ViewerProxy;
 
 #[cfg_attr(feature = "python-bindings", pymethods)]
 impl ViewerProxy {
+    #[cfg(feature = "python-bindings")]
+    #[new]
+    fn py_new() -> Self {
+        Self
+    }
+
     pub fn running(&self) -> bool {
         if let Some(state) = G_VIEWER_SHARED_STATE.get() && state.lock().unwrap().running() {
             true
@@ -963,6 +974,24 @@ impl ViewerProxy {
         }
     }
 
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "render")]
+    fn py_render(&self, py: Python<'_>) {
+        py.allow_threads(|| {
+            self.render();
+        })
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "render_loop")]
+    fn py_render_loop(&self, py: Python<'_>) {
+        py.allow_threads(|| {
+            self.render_loop();
+        })
+    }
+}
+
+impl ViewerProxy {
     pub fn render(&self) {
         G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
             if let Some(viewer) = maybe_viewer {
@@ -990,6 +1019,7 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FuzbAISimulator>()?;
     m.add_class::<PlayerTeam>()?;
     m.add_class::<VisualConfig>()?;
+    m.add_class::<ViewerProxy>()?;
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
     // m.add_function(wrap_fu)?;
