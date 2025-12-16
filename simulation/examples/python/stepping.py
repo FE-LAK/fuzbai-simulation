@@ -41,7 +41,7 @@ def physics(simulator: fs.FuzbAISimulator):
 # Multiple of these can exist, just not with the viewer enabled.
 sim = fs.FuzbAISimulator(
     internal_step_factor=5, sample_steps=5,
-    realtime=False,
+    realtime=True,
     simulated_delay_s=0.055,
     model_path=None,
     visual_config=fs.VisualConfig(
