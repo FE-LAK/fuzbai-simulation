@@ -1,17 +1,17 @@
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
-use actix_files::{Files};
-use actix_web::web;
 use tokio::runtime::Builder;
+use actix_files::{Files};
 use serde::Serialize;
+use actix_web::web;
 
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
-
-use std::sync::{Arc, Mutex};
-use std::ops::Deref;
+use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::Instant};
 
 
 const NUM_TOKIO_THREADS: usize = 4;
+
+static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
 
 /// Data received from a single camera.
@@ -59,17 +59,41 @@ impl CameraState {
 
 /// Shared state between HTTP server and the simulation.
 struct ServerState {
-    camera_state: Mutex<CameraState>,
+    camera_state: CameraState,
     port: u16,
-    team: Mutex<PlayerTeam>
+    score: u16,
+    team: PlayerTeam,
+    team_name: String,
+    builtin: bool
+}
+
+enum CompetitionPending {
+    ResetScore
+}
+
+struct CompetitionState {
+    timer: Instant,
+    pending: VecDeque<CompetitionPending>
+}
+
+impl Default for CompetitionState {
+    fn default() -> Self {
+        Self { timer: Instant::now(), pending: VecDeque::new() }
+    }
 }
 
 
 fn main() {
     /* Initialize states for each team */
     let states = [
-        Arc::new(ServerState {camera_state: Mutex::new(CameraState::new()), port: 8080, team: Mutex::new(PlayerTeam::Red)}),
-        Arc::new(ServerState {camera_state: Mutex::new(CameraState::new()), port: 8081, team: Mutex::new(PlayerTeam::Blue)})
+        Arc::new(Mutex::new(ServerState {
+            camera_state: CameraState::new(), port: 8080, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
+            score: 0, builtin: false
+        })),
+        Arc::new(Mutex::new(ServerState {
+            camera_state: CameraState::new(), port: 8081, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
+            score: 0, builtin: false
+        }))
     ];
 
     /* Initialize tokio runtime and with it, the HTTP server */
@@ -97,12 +121,50 @@ fn main() {
     );
 
     /* Start physics in another thread */
+    let states_clone = states.clone();
     let sim_thread = std::thread::spawn(move || {
-        simulation_thread(sim, states);
+        simulation_thread(sim, states_clone);
     });
 
     /* Loop forever within Rust in the main thread and also without GIL */
     let viewer = ViewerProxy;
+    viewer.add_ui_callback(move |ctx| {
+        use fuzbai_simulator::egui;
+        egui::Window::new("FuzbAI Competition").show(ctx, |ui| {
+            ui.heading("Teams");
+            egui::Grid::new("team_grid").num_columns(4).show(ui, |ui| {
+                ui.label("Port");
+                ui.label("Team");
+                ui.label("Score");
+                ui.end_row();
+                for state in &states {
+                    let mut state = state.lock().unwrap();
+                    let team = &state.team;
+                    let team_name = &state.team_name;
+                    let port = state.port;
+                    let score = state.score;
+                    ui.label(port.to_string());
+                    ui.label(format!("{team_name} ({team:?})"));
+                    ui.label(score.to_string());
+                    ui.checkbox(&mut state.builtin, "built-in");
+                    ui.end_row();
+                }
+
+                if ui.button("Swap teams").clicked() {
+                    let team_0 = &mut states[0].lock().unwrap().team;
+                    let team_1 = &mut states[1].lock().unwrap().team;
+                    let tmp = team_0.clone();
+                    *team_0 = team_1.clone();
+                    *team_1 = tmp;
+                }
+
+                if ui.button("Reset score").clicked() {
+                    COMPETITION_STATE.lock().unwrap().pending.push_back(CompetitionPending::ResetScore);
+                }
+            });
+        });
+    });
+
     viewer.render_loop();
 
     /* Final cleanup */
@@ -111,16 +173,27 @@ fn main() {
 }
 
 
-fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<ServerState>; 2]) {
+fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<ServerState>>; 2]) {
     while sim.viewer_running() {
         if sim.terminated() || sim.truncated() {
             sim.reset_simulation();
         }
         sim.step_simulation();
 
+        let mut comp_state = COMPETITION_STATE.lock().unwrap();
+        while let Some(pending) = comp_state.pending.pop_front() {
+            match pending {
+                CompetitionPending::ResetScore => { sim.clear_score(); }
+            }
+        }
+        drop(comp_state);
+
+        /* Sync the simulation state with our competition state */
+        let score = sim.score().clone();
         for state in &states {
-            let team = state.team.lock().unwrap().deref().clone();
-            let observation = sim.delayed_observation(team, None);
+            let mut state = state.lock().unwrap();
+            let team = state.team.clone();
+            let observation = sim.delayed_observation(team.clone(), None);
             let (
                 ball_x, ball_y, ball_vx, ball_vy,
                 rod_position_calib, rod_angle
@@ -136,15 +209,17 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<ServerState>; 2]) {
             let camera_data_1 = CameraData {cameraID: 1, ..camera_data_0};
 
             /* Update the state for the configured team */
-            state.camera_state.lock().unwrap().camData = [camera_data_0, camera_data_1];
+            state.camera_state.camData = [camera_data_0, camera_data_1];
+            state.score = score[team.clone() as usize];
+            sim.set_external_mode(team, !state.builtin);
         }
     }
 }
 
 
-async fn http_task(states: [Arc<ServerState>; 2]) {
-    let factory = |state: Arc<ServerState>| {
-            let port = state.port;
+async fn http_task(states: [Arc<Mutex<ServerState>>; 2]) {
+    let factory = |state: Arc<Mutex<ServerState>>| {
+            let port = state.lock().unwrap().port;
             HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(state.clone()))
@@ -181,16 +256,17 @@ async fn http_task(states: [Arc<ServerState>; 2]) {
 
 
 #[get("/Camera/State")]
-async fn camera_state(data: web::Data<Arc<ServerState>>) -> impl Responder {
-    HttpResponse::Ok().json(data.camera_state.lock().unwrap().deref())
+async fn camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+    HttpResponse::Ok().json(&data.lock().unwrap().camera_state)
 }
 
 #[get("/Competition")]
-async fn competition() -> impl Responder {
+async fn competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+    let name = &data.lock().unwrap().team_name;
     let json: serde_json::Value = serde_json::json! {
         {
-            "state": 2, "time": 0, "playerName": "SimBlue",
-            "scorePlayer": 0, "scoreFuzbAI": 0, "level": 0, "results": []
+            "state": 2, "time": 0, "playerName": name,
+            "scorePlayer": "", "scoreFuzbAI": "", "level": 0, "results": []
         }
     };
 

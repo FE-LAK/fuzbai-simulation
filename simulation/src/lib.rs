@@ -2,6 +2,9 @@ use mujoco_rs::viewer::{MjViewer, ViewerSharedState};
 use mujoco_rs::prelude::*;
 use mujoco_rs;
 
+// Re-export for convenience
+pub use mujoco_rs::viewer::egui;
+
 use agent_rust::Agent as BuiltInAgent;
 
 use std::sync::{Arc, OnceLock, Mutex};
@@ -162,6 +165,9 @@ pub struct FuzbAISimulator {
     /// or by the internally stored agent (`false`).
     external_team_blue: bool,
 
+    /// The score of each team (red, blue).
+    score: [u16; 2],
+
     /* Miscellaneous */
     /// Holds past observations up to [`MAX_DELAY_S`].
     // delayed_memory: ArrayDeque<ObservationType, MAX_DELAY_BUFFER_LEN, Wrapping>,
@@ -215,6 +221,10 @@ impl FuzbAISimulator {
 
     pub fn truncated(&self) -> bool {
         self.truncated
+    }
+
+    pub fn score(&self) -> &[u16; 2] {
+        &self.score
     }
 
     /// Returns the collision forces (relative to the red team).
@@ -412,6 +422,10 @@ impl FuzbAISimulator {
         self.visualizer.clear_trace();
     }
 
+    pub fn clear_score(&mut self) {
+        self.score.fill(0);
+    }
+
     /// Syncs the simulation state with the viewer.
     /// When viewer is not running, this has no effect.
     pub fn sync_viewer(&mut self) {
@@ -486,12 +500,14 @@ impl FuzbAISimulator {
             // Blue scored a goal
             if self.mj_red_goal_geom_ids.iter().any(|&id| id == geom_id) {
                 self.terminated = true;
+                self.score[1] += 1;
                 break;
             }
 
             // Red scored a goal
             else if self.mj_blue_goal_geom_ids.iter().any(|&id| id == geom_id) {
                 self.terminated = true;
+                self.score[0] += 1;
                 break;
             }
         }
@@ -699,7 +715,8 @@ impl FuzbAISimulator {
             delayed_memory: VecDeque::new(),
             ball_last_moving_t: 0.0,
             external_team_red: true, external_team_blue: false,
-            terminated: true, truncated: false, current_time: 0.0, current_ll_step: 0,
+            terminated: true, truncated: false, score: [0; 2],
+            current_time: 0.0, current_ll_step: 0,
             collision_forces: [[0.0, 0.0, 0.0, 0.0]; 8], collision_indices: [-1; 8],
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
@@ -977,6 +994,7 @@ impl ViewerProxy {
     }
 }
 
+/// Rust-only methods.
 impl ViewerProxy {
     pub fn render(&self) {
         G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
@@ -994,6 +1012,17 @@ impl ViewerProxy {
                 }
             }
         })
+    }
+
+    pub fn add_ui_callback<F>(&self, mut callback: F)
+    where
+        F: FnMut(&egui::Context) + 'static
+    {
+        G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
+            if let Some(viewer) = maybe_viewer {
+                viewer.add_ui_callback(move |ctx, _| callback(ctx));
+            }
+        });
     }
 }
 
