@@ -1,11 +1,13 @@
-use std::{cell::LazyCell, sync::{Arc, LazyLock, Mutex}};
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
 use actix_files::{Files};
 use actix_web::web;
-use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 use tokio::runtime::Builder;
 use serde::Serialize;
+
+use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
+
+use std::sync::{Arc, Mutex};
 use std::ops::Deref;
 
 
@@ -109,8 +111,6 @@ fn main() {
 
 
 fn simulation_thread(mut sim: FuzbAISimulator, states: &[Arc<TeamState>]) {
-    sim.set_external_mode(PlayerTeam::RED,false);
-    sim.set_external_mode(PlayerTeam::BLUE, true);
     while sim.viewer_running() {
         if sim.terminated() || sim.truncated() {
             sim.reset_simulation();

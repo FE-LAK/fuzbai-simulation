@@ -8,6 +8,7 @@ use std::sync::{Arc, OnceLock, Mutex};
 use std::{collections::VecDeque};
 use std::cell::RefCell;
 use std::time::Instant;
+use std::fmt::Debug;
 use core::f64;
 
 use rand::distr::{Distribution, Uniform};
@@ -30,18 +31,22 @@ pub mod types;
 /// Compiled MuJoCo model. Useful when compiling as a Python wheel or a Rust crate.
 const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
 
+/// How much time the competition can last.
+const COMPETITION_TIME_SECS: u64 = 120;
+
 /// Global MjModel instance shared across multiple FuzbAI simulators.
 /// This has the benefit of consuming less memory (as the model is fixed).
 /// It is also required due to PyO3's aggressive checks for thread-safety and
 /// prohibition of Rust's lifetimes.
-pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
+static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
 thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
-    pub static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
+    static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
 }
-pub static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
+static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
+static G_COMPETITION_STATE: OnceLock<Mutex<CompetitionState>> = OnceLock::new();
 
 
 /* Enum definitions */
@@ -124,6 +129,33 @@ impl VisualConfig {
 }
 
 
+/// Shared state with the viewer,
+/// specifically for the FuzbAI simulation.
+struct CompetitionState {
+    score: [u32; 2],
+    team_red_name: String,
+    team_blue_name: String,
+    timer: Instant,
+    enabled: bool
+}
+
+impl Default for CompetitionState{
+    fn default() -> Self {
+        Self {
+            score: [0; 2],
+            team_red_name: "Red".into(), team_blue_name: "Blue".into(),
+            timer: Instant::now(), enabled: false
+        }
+    }
+}
+
+impl Debug for CompetitionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FuzbAISharedState {{ .. }}")
+    }
+}
+
+
 /// High level simulation wrapping the MuJoCo physical
 /// simulation of the table football.
 #[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
@@ -160,8 +192,6 @@ pub struct FuzbAISimulator {
     /// Controls whether the blue team (right) is controlled outside of this simulation (`true`)
     /// or by the internally stored agent (`false`).
     external_team_blue: bool,
-    /// The score (number of goals), formatted as: [RED - BLUE].
-    score: [usize; 2],
 
     /* Miscellaneous */
     /// Holds past observations up to [`MAX_DELAY_S`].
@@ -216,11 +246,6 @@ impl FuzbAISimulator {
 
     pub fn truncated(&self) -> bool {
         self.truncated
-    }
-
-    /// Returns the current score. The score is formatted as: [RED - BLUE].
-    pub fn score(&self) -> [usize; 2] {
-        self.score
     }
 
     /// Returns the collision forces (relative to the red team).
@@ -414,11 +439,6 @@ impl FuzbAISimulator {
         ball_view.qfrc_applied.fill(0.0);
     }
 
-    /// Clears the score to [0-0];
-    pub fn clear_score(&mut self) {
-        self.score = [0, 0];
-    }
-
     pub fn clear_trace(&mut self) {
         self.visualizer.clear_trace();
     }
@@ -496,15 +516,19 @@ impl FuzbAISimulator {
 
             // Blue scored a goal
             if self.mj_red_goal_geom_ids.iter().any(|&id| id == geom_id) {
-                self.score[1] += 1;
                 self.terminated = true;
+                if let Some(competition_state) = G_COMPETITION_STATE.get() {
+                    competition_state.lock().unwrap().score[1] += 1;
+                }
                 break;
             }
 
             // Red scored a goal
             else if self.mj_blue_goal_geom_ids.iter().any(|&id| id == geom_id) {
-                self.score[0] += 1;
                 self.terminated = true;
+                if let Some(competition_state) = G_COMPETITION_STATE.get() {
+                    competition_state.lock().unwrap().score[0] += 1;
+                }
                 break;
             }
         }
@@ -639,13 +663,54 @@ impl FuzbAISimulator {
             G_MJ_VIEWER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
-                    let v = mujoco_rs::viewer::MjViewer::builder()
+                    let mut v = mujoco_rs::viewer::MjViewer::builder()
                         .vsync(true)
                         .max_user_geoms(MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN)
                         .warn_non_realtime(true)
                         .window_name("FuzbAI Simulator")
                     .build_passive(model).unwrap();
                     G_VIEWER_SHARED_STATE.set(v.state().clone()).expect("viewer is already initialized");
+
+                    /* FuzbAI specific viewer state and callbacks */
+                    let fuzbai_viewer_state = Mutex::new(CompetitionState::default());
+                    G_COMPETITION_STATE.set(fuzbai_viewer_state).unwrap();
+                    v.add_ui_callback(|egui_ctx, _| {
+                        use mujoco_rs::viewer::egui;
+                        egui::Window::new("FuzbAI Simulation V2").show(egui_ctx, |ui| {
+                            let mut state = G_COMPETITION_STATE.get().unwrap().lock().unwrap();
+                            ui.heading("Teams");
+                            egui::Grid::new("team_grid")
+                                .num_columns(2)
+                            .show(ui, |ui| {
+                                ui.label(state.team_red_name.clone());
+                                ui.label(state.team_blue_name.clone());
+                                ui.end_row();
+
+                                ui.label(state.score[0].to_string());
+                                ui.label(state.score[1].to_string());
+                                ui.end_row();                                  
+                            });
+
+                            ui.separator();
+                            if state.enabled {
+                                let elapsed_secs = state.timer.elapsed().as_secs();
+                                let remaining = COMPETITION_TIME_SECS - elapsed_secs.min(COMPETITION_TIME_SECS);
+                                let minutes = remaining / 60;
+                                let seconds = remaining % 60;
+                                ui.label(format!("Time remaining: {minutes:02}:{seconds:02}"));
+                                if ui.button("Stop").clicked() {
+                                    state.enabled = false;
+                                };
+                            } else {
+                                ui.label("Not running");
+                                if ui.button("Start").clicked() {
+                                    state.score.fill(0);
+                                    state.timer = Instant::now();
+                                    state.enabled = true;
+                                };
+                            }
+                        });
+                    });
                     *borrow = Some(v);
                 }
                 else {
@@ -709,7 +774,6 @@ impl FuzbAISimulator {
             internal_step_factor, sample_steps, simulated_delay_s, visual_config, realtime,
             mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
             mj_red_goal_geom_ids, mj_blue_goal_geom_ids,
-            score: [0, 0], 
             delayed_memory: VecDeque::new(),
             ball_last_moving_t: 0.0,
             external_team_red: true, external_team_blue: false,
@@ -800,10 +864,10 @@ impl FuzbAISimulator {
     /// Proxy method to the built-in player's `set_disabled` method.
     pub fn set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: &[usize]) {
         if let PlayerTeam::RED = team {
-            self.red_builtin_player.set_disabled(indices.into());
+            self.red_builtin_player.set_disabled(indices);
         }
         else {
-            self.blue_builtin_player.set_disabled(indices.into());
+            self.blue_builtin_player.set_disabled(indices);
         }
     }
 
@@ -1022,6 +1086,5 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ViewerProxy>()?;
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
-    // m.add_function(wrap_fu)?;
     Ok(())
 }
