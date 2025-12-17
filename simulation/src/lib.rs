@@ -31,9 +31,6 @@ pub mod types;
 /// Compiled MuJoCo model. Useful when compiling as a Python wheel or a Rust crate.
 const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
 
-/// How much time the competition can last.
-const COMPETITION_TIME_SECS: u64 = 120;
-
 /// Global MjModel instance shared across multiple FuzbAI simulators.
 /// This has the benefit of consuming less memory (as the model is fixed).
 /// It is also required due to PyO3's aggressive checks for thread-safety and
@@ -46,17 +43,16 @@ thread_local! {
     static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
 }
 static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
-static G_COMPETITION_STATE: OnceLock<Mutex<CompetitionState>> = OnceLock::new();
 
 
 /* Enum definitions */
 #[cfg_attr(feature = "python-bindings", pyclass(eq, eq_int, module = "fuzbai_simulator"))]
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 #[repr(usize)] 
 /// Enumerates the two possible teams by color.
 pub enum PlayerTeam {
-    RED = 0,
-    BLUE
+    Red = 0,
+    Blue
 }
 
 #[cfg(feature = "python-bindings")]
@@ -125,33 +121,6 @@ impl VisualConfig {
             mask |= 1 << index;
         }
         mask << (rod_index * 8)
-    }
-}
-
-
-/// Shared state with the viewer,
-/// specifically for the FuzbAI simulation.
-struct CompetitionState {
-    score: [u32; 2],
-    team_red_name: String,
-    team_blue_name: String,
-    timer: Instant,
-    enabled: bool
-}
-
-impl Default for CompetitionState{
-    fn default() -> Self {
-        Self {
-            score: [0; 2],
-            team_red_name: "Red".into(), team_blue_name: "Blue".into(),
-            timer: Instant::now(), enabled: false
-        }
-    }
-}
-
-impl Debug for CompetitionState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FuzbAISharedState {{ .. }}")
     }
 }
 
@@ -304,8 +273,8 @@ impl FuzbAISimulator {
     pub fn observation(&self, team: PlayerTeam) -> ObservationType {
         let observation = self.observation_red();
         match team {
-            PlayerTeam::RED => observation,
-            PlayerTeam::BLUE => Self::transform_observation_red_to_blue(observation)
+            PlayerTeam::Red => observation,
+            PlayerTeam::Blue => Self::transform_observation_red_to_blue(observation)
         }
     }
 
@@ -329,8 +298,8 @@ impl FuzbAISimulator {
 
         let obs_red = self.delayed_memory[index];
         match team {
-            PlayerTeam::RED => obs_red,
-            PlayerTeam::BLUE => Self::transform_observation_red_to_blue(obs_red)
+            PlayerTeam::Red => obs_red,
+            PlayerTeam::Blue => Self::transform_observation_red_to_blue(obs_red)
         }
     }
 
@@ -376,7 +345,7 @@ impl FuzbAISimulator {
     /// Configures whether the specific `team` should obtain commands externally (`enable` = `true`)
     /// or internally (`enable` = `false`, the agent is stored within the simulation).
     pub fn set_external_mode(&mut self, team: PlayerTeam, enable: bool) {
-        if let PlayerTeam::RED = team {
+        if let PlayerTeam::Red = team {
             self.external_team_red = enable;
         }
         else {
@@ -517,18 +486,12 @@ impl FuzbAISimulator {
             // Blue scored a goal
             if self.mj_red_goal_geom_ids.iter().any(|&id| id == geom_id) {
                 self.terminated = true;
-                if let Some(competition_state) = G_COMPETITION_STATE.get() {
-                    competition_state.lock().unwrap().score[1] += 1;
-                }
                 break;
             }
 
             // Red scored a goal
             else if self.mj_blue_goal_geom_ids.iter().any(|&id| id == geom_id) {
                 self.terminated = true;
-                if let Some(competition_state) = G_COMPETITION_STATE.get() {
-                    competition_state.lock().unwrap().score[0] += 1;
-                }
                 break;
             }
         }
@@ -663,54 +626,13 @@ impl FuzbAISimulator {
             G_MJ_VIEWER.with(|slot| {
                 let mut borrow = slot.borrow_mut();
                 if borrow.is_none() {
-                    let mut v = mujoco_rs::viewer::MjViewer::builder()
+                    let v = mujoco_rs::viewer::MjViewer::builder()
                         .vsync(true)
                         .max_user_geoms(MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN)
                         .warn_non_realtime(true)
                         .window_name("FuzbAI Simulator")
                     .build_passive(model).unwrap();
                     G_VIEWER_SHARED_STATE.set(v.state().clone()).expect("viewer is already initialized");
-
-                    /* FuzbAI specific viewer state and callbacks */
-                    let fuzbai_viewer_state = Mutex::new(CompetitionState::default());
-                    G_COMPETITION_STATE.set(fuzbai_viewer_state).unwrap();
-                    v.add_ui_callback(|egui_ctx, _| {
-                        use mujoco_rs::viewer::egui;
-                        egui::Window::new("FuzbAI Simulation V2").show(egui_ctx, |ui| {
-                            let mut state = G_COMPETITION_STATE.get().unwrap().lock().unwrap();
-                            ui.heading("Teams");
-                            egui::Grid::new("team_grid")
-                                .num_columns(2)
-                            .show(ui, |ui| {
-                                ui.label(state.team_red_name.clone());
-                                ui.label(state.team_blue_name.clone());
-                                ui.end_row();
-
-                                ui.label(state.score[0].to_string());
-                                ui.label(state.score[1].to_string());
-                                ui.end_row();                                  
-                            });
-
-                            ui.separator();
-                            if state.enabled {
-                                let elapsed_secs = state.timer.elapsed().as_secs();
-                                let remaining = COMPETITION_TIME_SECS - elapsed_secs.min(COMPETITION_TIME_SECS);
-                                let minutes = remaining / 60;
-                                let seconds = remaining % 60;
-                                ui.label(format!("Time remaining: {minutes:02}:{seconds:02}"));
-                                if ui.button("Stop").clicked() {
-                                    state.enabled = false;
-                                };
-                            } else {
-                                ui.label("Not running");
-                                if ui.button("Start").clicked() {
-                                    state.score.fill(0);
-                                    state.timer = Instant::now();
-                                    state.enabled = true;
-                                };
-                            }
-                        });
-                    });
                     *borrow = Some(v);
                 }
                 else {
@@ -855,7 +777,7 @@ impl FuzbAISimulator {
     /// Sets new motor (rod movement) commands for the specified `team`.
     /// The commands will be applied at the next call to [`step_simulation`](FuzbAISimulator::step_simulation)
     pub fn set_motor_command(&mut self, commands: &[MotorCommand], team: PlayerTeam) {
-        let pending_cmds = if let PlayerTeam::RED = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
+        let pending_cmds = if let PlayerTeam::Red = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
         pending_cmds.clear();
         pending_cmds.extend_from_slice(commands);
         pending_cmds.shrink_to_fit();
@@ -863,7 +785,7 @@ impl FuzbAISimulator {
 
     /// Proxy method to the built-in player's `set_disabled` method.
     pub fn set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: &[usize]) {
-        if let PlayerTeam::RED = team {
+        if let PlayerTeam::Red = team {
             self.red_builtin_player.set_disabled(indices);
         }
         else {
@@ -906,7 +828,7 @@ impl FuzbAISimulator {
 
         // Red team
         if !self.external_team_red {
-            obs = self.delayed_observation(PlayerTeam::RED, None);
+            obs = self.delayed_observation(PlayerTeam::Red, None);
             let (x, y, vx, vy, ..) = obs;
             self.pending_motor_cmd_red = self.red_builtin_player.get_action(x, y, vx, vy);
         }
@@ -922,7 +844,7 @@ impl FuzbAISimulator {
 
         // Blue team
         if !self.external_team_blue {
-            obs = self.delayed_observation(PlayerTeam::BLUE, None);
+            obs = self.delayed_observation(PlayerTeam::Blue, None);
             let (x, y, vx, vy, ..) = obs;
             self.pending_motor_cmd_blue = self.blue_builtin_player.get_action(x, y, vx, vy);
         }
@@ -939,7 +861,7 @@ impl FuzbAISimulator {
 
     /// Stores the current state into the delayed state buffer
     fn sample_state(&mut self) {
-        let obs = self.observation(PlayerTeam::RED);
+        let obs = self.observation(PlayerTeam::Red);
         if self.delayed_memory.len() >= MAX_DELAY_BUFFER_LEN {
             self.delayed_memory.pop_back();
         }

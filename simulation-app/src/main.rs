@@ -58,8 +58,9 @@ impl CameraState {
 
 
 /// Shared state between HTTP server and the simulation.
-struct TeamState {
+struct ServerState {
     camera_state: Mutex<CameraState>,
+    port: u16,
     team: Mutex<PlayerTeam>
 }
 
@@ -67,8 +68,8 @@ struct TeamState {
 fn main() {
     /* Initialize states for each team */
     let states = [
-        Arc::new(TeamState {camera_state: Mutex::new(CameraState::new()), team: Mutex::new(PlayerTeam::RED)}),
-        Arc::new(TeamState {camera_state: Mutex::new(CameraState::new()), team: Mutex::new(PlayerTeam::BLUE)})
+        Arc::new(ServerState {camera_state: Mutex::new(CameraState::new()), port: 8080, team: Mutex::new(PlayerTeam::Red)}),
+        Arc::new(ServerState {camera_state: Mutex::new(CameraState::new()), port: 8081, team: Mutex::new(PlayerTeam::Blue)})
     ];
 
     /* Initialize tokio runtime and with it, the HTTP server */
@@ -80,7 +81,7 @@ fn main() {
             .build()
             .unwrap();
 
-        runtime.block_on(http_task(&states_clone));
+        runtime.block_on(http_task(states_clone));
     });
 
     /* Initialize simulation */
@@ -92,12 +93,12 @@ fn main() {
         VisualConfig::new(
             10, true,
             0, true
-        )
+        ),
     );
 
     /* Start physics in another thread */
     let sim_thread = std::thread::spawn(move || {
-        simulation_thread(sim, &states);
+        simulation_thread(sim, states);
     });
 
     /* Loop forever within Rust in the main thread and also without GIL */
@@ -110,14 +111,14 @@ fn main() {
 }
 
 
-fn simulation_thread(mut sim: FuzbAISimulator, states: &[Arc<TeamState>]) {
+fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<ServerState>; 2]) {
     while sim.viewer_running() {
         if sim.terminated() || sim.truncated() {
             sim.reset_simulation();
         }
         sim.step_simulation();
 
-        for state in states {
+        for state in &states {
             let team = state.team.lock().unwrap().deref().clone();
             let observation = sim.delayed_observation(team, None);
             let (
@@ -141,8 +142,9 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: &[Arc<TeamState>]) {
 }
 
 
-async fn http_task(states: &[Arc<TeamState>]) {
-    let factory = |port, state: Arc<TeamState>| {
+async fn http_task(states: [Arc<ServerState>; 2]) {
+    let factory = |state: Arc<ServerState>| {
+            let port = state.port;
             HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(state.clone()))
@@ -159,8 +161,9 @@ async fn http_task(states: &[Arc<TeamState>]) {
     };
 
     let mut join_set = tokio::task::JoinSet::new();
-    join_set.spawn(factory(8080, states[0].clone()));
-    join_set.spawn(factory(8081, states[1].clone()));
+    for state in states {
+        join_set.spawn(factory(state.clone()));
+    }
 
     while let Some(result) = join_set.join_next().await {
         match result {
@@ -178,7 +181,7 @@ async fn http_task(states: &[Arc<TeamState>]) {
 
 
 #[get("/Camera/State")]
-async fn camera_state(data: web::Data<Arc<TeamState>>) -> impl Responder {
+async fn camera_state(data: web::Data<Arc<ServerState>>) -> impl Responder {
     HttpResponse::Ok().json(data.camera_state.lock().unwrap().deref())
 }
 
