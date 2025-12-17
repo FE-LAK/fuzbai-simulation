@@ -109,7 +109,7 @@ fn main() {
     });
 
     /* Initialize simulation */
-    let sim = FuzbAISimulator::new(
+    let mut sim = FuzbAISimulator::new(
         5, 5,
         true,
         0.055,
@@ -119,6 +119,9 @@ fn main() {
             0, true
         ),
     );
+
+    sim.set_external_mode(PlayerTeam::Red, true);
+    sim.set_external_mode(PlayerTeam::Blue, true);
 
     /* Start physics in another thread */
     let states_clone = states.clone();
