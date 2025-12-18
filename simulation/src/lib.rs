@@ -65,7 +65,7 @@ impl PlayerTeam {
     /// Dummy constructor to allow pickle support
     #[new]
     fn new() -> Self {
-        Self::RED
+        Self::Red
     }
 
     fn __getstate__(&self) -> PyResult<usize> {
