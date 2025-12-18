@@ -15,7 +15,7 @@ static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| M
 
 
 /// Data received from a single camera.
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Clone)]
 #[allow(non_snake_case)]
 struct CameraData {
     cameraID: u32,
@@ -40,7 +40,7 @@ impl CameraData {
 
 /// Return type for [`camera_state`].
 /// Contains state for both cameras.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[allow(non_snake_case)]
 struct CameraState {
     camData: [CameraData; 2],
@@ -268,9 +268,11 @@ async fn http_task(states: [Arc<Mutex<ServerState>>; 2]) {
             HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(state.clone()))
-                .service(camera_state)
+                .service(get_camera_state)
                 .service(send_command)
-                .service(competition)
+                .service(get_competition)
+                .service(get_state)
+                .service(reset_rotations)
                 .service(
                     Files::new("/", "./www/")
                     .index_file("Render.html")
@@ -302,12 +304,12 @@ async fn http_task(states: [Arc<Mutex<ServerState>>; 2]) {
 
 
 #[get("/Camera/State")]
-async fn camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+async fn get_camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
     HttpResponse::Ok().json(&data.lock().unwrap().camera_state)
 }
 
 #[get("/Competition")]
-async fn competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+async fn get_competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
     let name = &data.lock().unwrap().team_name;
     let json: serde_json::Value = serde_json::json! {
         {
@@ -323,4 +325,90 @@ async fn competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder
 async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
     data.lock().unwrap().pending_commands = commands.into_inner().commands;
     HttpResponse::Ok()
+}
+
+#[get("/Motors/ResetRotations")]
+async fn reset_rotations() -> impl Responder {
+    HttpResponse::Ok().json(serde_json::json!( {"message": "Resetting rotations."} ))
+}
+
+#[derive(Serialize, Clone)]
+#[allow(non_snake_case)]
+struct StateCameraStateRod {
+    Item1: f64,
+    Item2: f64,
+}
+
+#[derive(Serialize, Clone)]
+struct StateCameraState   {
+    rods: [StateCameraStateRod; 8],
+    ball_x: f64,
+    ball_y: f64,
+    ball_vx: f64,
+    ball_vy: f64,
+    ball_size: f64,
+}
+
+
+#[derive(Serialize)]
+#[allow(non_snake_case)]
+struct StateDrivesStateDrivesValue {
+    axisEncoderPosition: f64,
+}
+
+#[derive(Serialize)]
+#[allow(non_snake_case)]
+struct StateDrivesStateDrive {
+    translation: StateDrivesStateDrivesValue,
+    rotation: StateDrivesStateDrivesValue
+}
+
+#[derive(Serialize)]
+#[allow(non_snake_case)]
+struct StateDrivesState {
+    drives: [StateDrivesStateDrive; 4]
+}
+
+#[derive(Serialize)]
+#[allow(non_snake_case)]
+struct State {
+    motorsReady: bool,
+    camData: [StateCameraState; 2],
+    drivesStates: StateDrivesState
+}
+
+#[get("/State")]
+async fn get_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+    let camera_state = data.lock().unwrap().camera_state.clone();
+    let rp = camera_state.camData[0].rod_position_calib;
+    let rr = camera_state.camData[0].rod_angle;
+
+    let ball_x = camera_state.camData[0].ball_x;
+    let ball_y = camera_state.camData[0].ball_y;
+    let ball_vx = camera_state.camData[0].ball_vx;
+    let ball_vy = camera_state.camData[0].ball_vy;
+    let ball_size = camera_state.camData[0].ball_size;
+
+    let state_cam_data = StateCameraState {
+        rods: std::array::from_fn(|i|
+            StateCameraStateRod { Item1: rp[i], Item2: rr[i] },
+        ),
+        ball_x, ball_y, ball_vx, ball_vy, ball_size
+    };
+
+    HttpResponse::Ok().json(
+        State {
+            motorsReady: true,
+            camData: [
+                state_cam_data.clone(),
+                state_cam_data
+            ],
+            drivesStates: StateDrivesState { drives: [
+                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[0] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[0] }},
+                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[1] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[1] }},
+                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[3] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[3] }},
+                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[5] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[5] }},
+            ] }
+        }
+    )
 }

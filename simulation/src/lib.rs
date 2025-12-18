@@ -446,7 +446,7 @@ impl FuzbAISimulator {
         self.delayed_memory.clear();
         self.clear_trace();
 
-        self.mj_data.reset();
+        self.mj_data.set_time(0.0);
         self.serve_ball(None);
         self.nudge_ball(None);
         self.mj_data.step1();
