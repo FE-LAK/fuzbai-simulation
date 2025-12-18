@@ -23,6 +23,9 @@
 
     <option integrator="implicitfast" cone="elliptic"/>
 
+    <!-- Override memory for contacts to reduce space -->
+    <size memory="500k"/>
+
     <!-- Default classes for repeated geoms -->
     <default>
         <default class="rod_geom">

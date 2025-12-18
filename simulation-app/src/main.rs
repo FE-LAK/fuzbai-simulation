@@ -1,8 +1,8 @@
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
+use serde::{Serialize, Deserialize};
 use tokio::runtime::Builder;
 use actix_files::{Files};
-use serde::Serialize;
 use actix_web::web;
 
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
@@ -57,11 +57,26 @@ impl CameraState {
 }
 
 
+#[derive(Deserialize, Clone, Debug)]
+#[allow(non_snake_case)]
+struct MotorCommand {
+    driveID: usize,
+    rotationTargetPosition: f64,
+    rotationVelocity: f64,
+    translationTargetPosition: f64,
+    translationVelocity: f64
+}
+
+
 /// Shared state between HTTP server and the simulation.
 struct ServerState {
+    /* Synced from simulation to server (state) */
     camera_state: CameraState,
-    port: u16,
     score: u16,
+    pending_commands: Vec<MotorCommand>,
+
+    /* Synced from server (state) to simulation or part of the server (state) */
+    port: u16,
     team: PlayerTeam,
     team_name: String,
     builtin: bool
@@ -84,15 +99,25 @@ impl Default for CompetitionState {
 
 
 fn main() {
+    let mut args = std::env::args();
+    let _ = args.next().unwrap();  // program path;
+
+    let port_0 = args.next()
+        .unwrap_or("8080".into())
+        .parse::<u16>().expect("passed team 1 port passed was invalid");
+    let port_1 = args.next()
+        .unwrap_or("8081".into())
+        .parse::<u16>().expect("passed team 2 port passed was invalid");
+
     /* Initialize states for each team */
     let states = [
         Arc::new(Mutex::new(ServerState {
-            camera_state: CameraState::new(), port: 8080, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
-            score: 0, builtin: false
+            camera_state: CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
+            score: 0, builtin: false, pending_commands: Vec::new()
         })),
         Arc::new(Mutex::new(ServerState {
-            camera_state: CameraState::new(), port: 8081, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
-            score: 0, builtin: false
+            camera_state: CameraState::new(), port: port_1, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
+            score: 0, builtin: false, pending_commands: Vec::new()
         }))
     ];
 
@@ -110,7 +135,7 @@ fn main() {
 
     /* Initialize simulation */
     let mut sim = FuzbAISimulator::new(
-        5, 5,
+        1, 5,
         true,
         0.055,
         None,
@@ -129,9 +154,14 @@ fn main() {
         simulation_thread(sim, states_clone);
     });
 
-    /* Loop forever within Rust in the main thread and also without GIL */
+    /* Create the viewer */
     let viewer = ViewerProxy;
-    viewer.add_ui_callback(move |ctx| {
+
+    // Add UI callbacks. Note that internally, viewer's passive state (used for synchronization)
+    // is locked (Mutex). This callbacks acquires a lock to the individual server state, which
+    // is a POTENTIAL DANGER REGARDING DEADLOCKS. If The server state gets locked at any other location,
+    // make sure YOU DO NOT CALL ANY VIEWER METHODS unless you unlock the server state (i.e., release its Mutex).
+    viewer.add_ui_callback(move |ctx, _| {  // (egui::Context, mujoco_rs::MjData [Note that the latter is locked by the passive state Mutex])
         use fuzbai_simulator::egui;
         egui::Window::new("FuzbAI Competition").show(ctx, |ui| {
             ui.heading("Teams");
@@ -168,7 +198,7 @@ fn main() {
         });
     });
 
-    viewer.render_loop();
+    viewer.render_loop();  // loop while viewer is running.
 
     /* Final cleanup */
     let _ = sim_thread.join();
@@ -214,7 +244,13 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<ServerState>>;
             /* Update the state for the configured team */
             state.camera_state.camData = [camera_data_0, camera_data_1];
             state.score = score[team.clone() as usize];
-            sim.set_external_mode(team, !state.builtin);
+            sim.set_external_mode(team.clone(), !state.builtin);
+
+            let commands: Box<_> = state.pending_commands.iter().map(|c|
+                (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
+            ).collect();
+
+            sim.set_motor_command(&commands, team);
         }
     }
 }
@@ -234,6 +270,7 @@ async fn http_task(states: [Arc<Mutex<ServerState>>; 2]) {
                     .index_file("Render.html")
                 )
         })
+        .workers(1)
         .bind(("127.0.0.1", port)).unwrap()
         .run()
     };
@@ -277,6 +314,7 @@ async fn competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder
 }
 
 #[post("/Motors/SendCommand")]
-async fn send_command() -> impl Responder {
+async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::Json<Vec<MotorCommand>>) -> impl Responder {
+    data.lock().unwrap().pending_commands = commands.0;
     HttpResponse::Ok()
 }
