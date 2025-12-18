@@ -57,7 +57,7 @@ impl CameraState {
 }
 
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone)]
 #[allow(non_snake_case)]
 struct MotorCommand {
     driveID: usize,
@@ -65,6 +65,12 @@ struct MotorCommand {
     rotationVelocity: f64,
     translationTargetPosition: f64,
     translationVelocity: f64
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct MotorCommands {
+    commands: Vec<MotorCommand>
 }
 
 
@@ -314,7 +320,7 @@ async fn competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder
 }
 
 #[post("/Motors/SendCommand")]
-async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::Json<Vec<MotorCommand>>) -> impl Responder {
-    data.lock().unwrap().pending_commands = commands.0;
+async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
+    data.lock().unwrap().pending_commands = commands.into_inner().commands;
     HttpResponse::Ok()
 }
