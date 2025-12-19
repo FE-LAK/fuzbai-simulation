@@ -13,80 +13,9 @@ const NUM_TOKIO_THREADS: usize = 4;
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
-
-/// Data received from a single camera.
-#[derive(Serialize, Default, Clone)]
-#[allow(non_snake_case)]
-struct CameraData {
-    cameraID: u32,
-    ball_x: f64,
-    ball_y: f64,
-    ball_vx: f64,
-    ball_vy: f64,
-    ball_size: f64,
-    rod_position_calib: [f64; 8],
-    rod_angle: [f64; 8],
-}
-
-impl CameraData {
-    fn new(id: u32) -> Self {
-        Self {
-            cameraID: id,
-            ..Default::default()
-        }
-    }
-}
+mod http;
 
 
-/// Return type for [`camera_state`].
-/// Contains state for both cameras.
-#[derive(Serialize, Clone)]
-#[allow(non_snake_case)]
-struct CameraState {
-    camData: [CameraData; 2],
-    camDataOK: [bool; 2],
-}
-
-impl CameraState {
-    fn new() -> Self {
-        Self {
-            camData: [CameraData::new(0), CameraData::new(1)],
-            camDataOK: [true, true]
-        }
-    }    
-}
-
-
-#[derive(Deserialize, Clone)]
-#[allow(non_snake_case)]
-struct MotorCommand {
-    driveID: usize,
-    rotationTargetPosition: f64,
-    rotationVelocity: f64,
-    translationTargetPosition: f64,
-    translationVelocity: f64
-}
-
-#[derive(Deserialize)]
-#[allow(non_snake_case)]
-struct MotorCommands {
-    commands: Vec<MotorCommand>
-}
-
-
-/// Shared state between HTTP server and the simulation.
-struct ServerState {
-    /* Synced from simulation to server (state) */
-    camera_state: CameraState,
-    score: u16,
-    pending_commands: Vec<MotorCommand>,
-
-    /* Synced from server (state) to simulation or part of the server (state) */
-    port: u16,
-    team: PlayerTeam,
-    team_name: String,
-    builtin: bool
-}
 
 enum CompetitionPending {
     ResetScore
@@ -117,12 +46,12 @@ fn main() {
 
     /* Initialize states for each team */
     let states = [
-        Arc::new(Mutex::new(ServerState {
-            camera_state: CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
+        Arc::new(Mutex::new(http::ServerState {
+            camera_state: http::CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new()
         })),
-        Arc::new(Mutex::new(ServerState {
-            camera_state: CameraState::new(), port: port_1, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
+        Arc::new(Mutex::new(http::ServerState {
+            camera_state: http::CameraState::new(), port: port_1, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new()
         }))
     ];
@@ -136,7 +65,7 @@ fn main() {
             .build()
             .unwrap();
 
-        runtime.block_on(http_task(states_clone));
+        runtime.block_on(http::http_task(states_clone));
     });
 
     /* Initialize simulation */
@@ -212,7 +141,7 @@ fn main() {
 }
 
 
-fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<ServerState>>; 2]) {
+fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
     while sim.viewer_running() {
         if sim.terminated() || sim.truncated() {
             sim.reset_simulation();
@@ -238,14 +167,14 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<ServerState>>;
                 rod_position_calib, rod_angle
             ) = observation;
 
-            let camera_data_0 = CameraData {
+            let camera_data_0 = http::CameraData {
                 cameraID: 0,
                 ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
                 rod_position_calib, rod_angle
             };
 
             // Assume the second camera gives the same results.
-            let camera_data_1 = CameraData {cameraID: 1, ..camera_data_0};
+            let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
 
             /* Update the state for the configured team */
             state.camera_state.camData = [camera_data_0, camera_data_1];
@@ -259,156 +188,4 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<ServerState>>;
             sim.set_motor_command(&commands, team);
         }
     }
-}
-
-
-async fn http_task(states: [Arc<Mutex<ServerState>>; 2]) {
-    let factory = |state: Arc<Mutex<ServerState>>| {
-            let port = state.lock().unwrap().port;
-            HttpServer::new(move || {
-            App::new()
-                .app_data(web::Data::new(state.clone()))
-                .service(get_camera_state)
-                .service(send_command)
-                .service(get_competition)
-                .service(get_state)
-                .service(reset_rotations)
-                .service(
-                    Files::new("/", "./www/")
-                    .index_file("Render.html")
-                )
-        })
-        .workers(1)
-        .bind(("127.0.0.1", port)).unwrap()
-        .run()
-    };
-
-    let mut join_set = tokio::task::JoinSet::new();
-    for state in states {
-        join_set.spawn(factory(state.clone()));
-    }
-
-    while let Some(result) = join_set.join_next().await {
-        match result {
-            Ok(r) => {
-                if let Err(err) = r {
-                    eprintln!("task errored: {err}");
-                }
-            },
-            Err(e) => {
-                eprintln!("join error: {e}");
-            }
-        }
-    }
-}
-
-
-#[get("/Camera/State")]
-async fn get_camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
-    HttpResponse::Ok().json(&data.lock().unwrap().camera_state)
-}
-
-#[get("/Competition")]
-async fn get_competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
-    let name = &data.lock().unwrap().team_name;
-    let json: serde_json::Value = serde_json::json! {
-        {
-            "state": 2, "time": 0, "playerName": name,
-            "scorePlayer": "", "scoreFuzbAI": "", "level": 0, "results": []
-        }
-    };
-
-    HttpResponse::Ok().json(json)
-}
-
-#[post("/Motors/SendCommand")]
-async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
-    data.lock().unwrap().pending_commands = commands.into_inner().commands;
-    HttpResponse::Ok()
-}
-
-#[get("/Motors/ResetRotations")]
-async fn reset_rotations() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!( {"message": "Resetting rotations."} ))
-}
-
-#[derive(Serialize, Clone)]
-#[allow(non_snake_case)]
-struct StateCameraStateRod {
-    Item1: f64,
-    Item2: f64,
-}
-
-#[derive(Serialize, Clone)]
-struct StateCameraState   {
-    rods: [StateCameraStateRod; 8],
-    ball_x: f64,
-    ball_y: f64,
-    ball_vx: f64,
-    ball_vy: f64,
-    ball_size: f64,
-}
-
-
-#[derive(Serialize)]
-#[allow(non_snake_case)]
-struct StateDrivesStateDrivesValue {
-    axisEncoderPosition: f64,
-}
-
-#[derive(Serialize)]
-#[allow(non_snake_case)]
-struct StateDrivesStateDrive {
-    translation: StateDrivesStateDrivesValue,
-    rotation: StateDrivesStateDrivesValue
-}
-
-#[derive(Serialize)]
-#[allow(non_snake_case)]
-struct StateDrivesState {
-    drives: [StateDrivesStateDrive; 4]
-}
-
-#[derive(Serialize)]
-#[allow(non_snake_case)]
-struct State {
-    motorsReady: bool,
-    camData: [StateCameraState; 2],
-    drivesStates: StateDrivesState
-}
-
-#[get("/State")]
-async fn get_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
-    let camera_state = data.lock().unwrap().camera_state.clone();
-    let rp = camera_state.camData[0].rod_position_calib;
-    let rr = camera_state.camData[0].rod_angle;
-
-    let ball_x = camera_state.camData[0].ball_x;
-    let ball_y = camera_state.camData[0].ball_y;
-    let ball_vx = camera_state.camData[0].ball_vx;
-    let ball_vy = camera_state.camData[0].ball_vy;
-    let ball_size = camera_state.camData[0].ball_size;
-
-    let state_cam_data = StateCameraState {
-        rods: std::array::from_fn(|i|
-            StateCameraStateRod { Item1: rp[i], Item2: rr[i] },
-        ),
-        ball_x, ball_y, ball_vx, ball_vy, ball_size
-    };
-
-    HttpResponse::Ok().json(
-        State {
-            motorsReady: true,
-            camData: [
-                state_cam_data.clone(),
-                state_cam_data
-            ],
-            drivesStates: StateDrivesState { drives: [
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[0] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[0] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[1] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[1] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[3] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[3] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[5] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[5] }},
-            ] }
-        }
-    )
 }
