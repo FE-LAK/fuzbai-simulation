@@ -14,7 +14,7 @@ def physics(simulator: fs.FuzbAISimulator):
         # Query delayed observation (actual measurement).
         # (ball_x, ball_y, ball_vx, ball_vy, rod_positions, rod_rotations)
         obs = simulator.delayed_observation(
-            fs.PlayerTeam.RED,  # Team
+            fs.PlayerTeam.Red,  # Team
             None  # Delay override. When None is passed,
                   # delay will be equal to the value of simulated_delay_s (passed in constructor).
         )
@@ -30,7 +30,7 @@ def physics(simulator: fs.FuzbAISimulator):
             # (rod_id, extension [0-1], rotation [-64, 64], mask)
             #       The mask is an 8 bit mask, where each bit corresponds to a figure on the rod.
             #       Enable individual bits to enable display for individual figure.
-            [(0, obs[4][0], 0.0, 0xFF)]
+            [(0, obs[4][0], obs[5][0], 0xFF)]
         )
 
 
@@ -48,8 +48,8 @@ sim = fs.FuzbAISimulator(
 )
 
 # Enable the built-in agent on both sides.
-sim.set_external_mode(fs.PlayerTeam.RED, False)
-sim.set_external_mode(fs.PlayerTeam.BLUE, False)
+sim.set_external_mode(fs.PlayerTeam.Red, False)
+sim.set_external_mode(fs.PlayerTeam.Blue, False)
 
 # Start the physics simulation.
 physics_thread = Thread(target=physics, args=(sim,))

@@ -12,20 +12,20 @@ RUN apt update
 
 # Build tools
 RUN apt install -y \
-    build-essential \
-    cmake \
-    curl \
-    libgl1-mesa-dev \
-    libwayland-dev \
-    libxinerama-dev \
-    libxcursor-dev \
-    libxkbcommon-dev \
-    libxrandr-dev \
-    libxi-dev \
-    ninja-build \
-    git \
-    pkg-config \
-    clang-13
+    build-essential=12.9ubuntu3 \
+    cmake=3.22.1-1ubuntu1.22.04.2 \
+    curl=7.81.0-1ubuntu1.21 \
+    libgl1-mesa-dev=23.2.1-1ubuntu3.1~22.04.3 \
+    libwayland-dev=1.20.0-1ubuntu0.1 \
+    libxinerama-dev=2:1.1.4-3 \
+    libxcursor-dev=1:1.2.0-2build4 \
+    libxkbcommon-dev=1.4.0-1 \
+    libxrandr-dev=2:1.5.2-1build1 \
+    libxi-dev=2:1.8-1build1 \
+    ninja-build=1.10.1-1 \
+    git=1:2.34.1-1ubuntu1.15 \
+    pkg-config=0.29.2-1ubuntu3 \
+    clang-13=1:13.0.1-2ubuntu2.2
 
 # Cleanup
 # Remove cached package files (*.deb)
