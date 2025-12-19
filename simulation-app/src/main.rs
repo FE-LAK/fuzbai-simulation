@@ -21,7 +21,8 @@ enum CompetitionPending {
 #[derive(PartialEq)]
 enum CompetitionStatus {
     Running(Instant),
-    Expired
+    Expired,
+    Free
 }
 
 struct CompetitionState {
@@ -87,10 +88,10 @@ fn main() {
     let mut sim = FuzbAISimulator::new(
         1, 5,
         true,
-        0.055,
+        0.050,
         None,
         VisualConfig::new(
-            10, true,
+            0, false,
             0, true
         ),
     );
@@ -137,11 +138,16 @@ fn main() {
             ui.separator();
             let mut state = COMPETITION_STATE.lock().unwrap();
             match state.status {
-                CompetitionStatus::Expired => {
+                CompetitionStatus::Expired | CompetitionStatus::Free => {
                     ui.horizontal(|ui| {
                         if ui.button("Start").clicked() {
                             state.status = CompetitionStatus::Running(Instant::now());
                             state.pending.push_back(CompetitionPending::ResetScore);
+                            state.pending.push_back(CompetitionPending::ResetSimulation);
+                        }
+
+                        if ui.button("Start free").clicked() {
+                            state.status = CompetitionStatus::Free;
                             state.pending.push_back(CompetitionPending::ResetSimulation);
                         }
 
@@ -158,7 +164,9 @@ fn main() {
                         }
                     });
 
-                    ui.label("Competition time expired");
+                    if let CompetitionStatus::Expired = state.status {
+                        ui.label("Competition time expired");
+                    }
                 }
 
                 CompetitionStatus::Running(timer) => {
