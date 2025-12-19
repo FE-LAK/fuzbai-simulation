@@ -1,10 +1,11 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
-use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Duration, Instant}};
+use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::Instant};
 
 use tokio::runtime::Builder;
 
 const NUM_TOKIO_THREADS: usize = 4;
-const COMPETITION_DURATION_SECS: u64 = 5;
+const COMPETITION_DURATION_SECS: u64 = 120;
+const EXPIRED_BALL_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
@@ -17,7 +18,6 @@ enum CompetitionPending {
 
 #[derive(PartialEq)]
 enum CompetitionStatus {
-    Stopped,
     Running(Instant),
     Expired
 }
@@ -36,7 +36,7 @@ impl CompetitionState {
 
 impl Default for CompetitionState {
     fn default() -> Self {
-        Self { status: CompetitionStatus::Stopped, pending: VecDeque::new() }
+        Self { status: CompetitionStatus::Expired, pending: VecDeque::new() }
     }
 }
 
@@ -131,7 +131,7 @@ fn main() {
             {
                 let mut state = COMPETITION_STATE.lock().unwrap();
                 match state.status {
-                    CompetitionStatus::Stopped | CompetitionStatus::Expired => {
+                    CompetitionStatus::Expired => {
                         ui.horizontal(|ui| {
                             if ui.button("Start").clicked() {
                                 state.status = CompetitionStatus::Running(Instant::now());
@@ -152,15 +152,13 @@ fn main() {
                             }
                         });
 
-                        if let CompetitionStatus::Expired = state.status {
-                            ui.label("Competition time expired");
-                        }
+                        ui.label("Competition time expired");
                     }
 
                     CompetitionStatus::Running(timer) => {
                         ui.horizontal(|ui| {
                             if ui.button("Stop").clicked() {
-                                state.status = CompetitionStatus::Stopped;
+                                state.status = CompetitionStatus::Expired;
                             }
 
                             let rem_total_seconds = COMPETITION_DURATION_SECS - timer.elapsed().as_secs().min(COMPETITION_DURATION_SECS);
@@ -187,12 +185,7 @@ fn main() {
 
 
 fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
-    while sim.viewer_running() {
-        if sim.terminated() || sim.truncated() {
-            sim.reset_simulation();
-        }
-        sim.step_simulation();
-       
+    while sim.viewer_running() {      
         let mut comp_state = COMPETITION_STATE.lock().unwrap();
         while let Some(pending) = comp_state.pending.pop_front() {
             match pending {
@@ -201,11 +194,18 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
             }
         }
 
+        let expired = comp_state.expired();
+        if expired  {
+            sim.reset_simulation();
+            sim.serve_ball(Some(EXPIRED_BALL_BALL_POSITION));
+        }
+
         drop(comp_state);
 
-        while COMPETITION_STATE.lock().unwrap().expired() && sim.viewer_running() {
-            std::thread::sleep(Duration::from_millis(500));
+        if sim.terminated() || sim.truncated() {
+            sim.reset_simulation();
         }
+        sim.step_simulation();
 
         /* Sync the simulation state with our competition state */
         let score = sim.score().clone();
@@ -214,9 +214,15 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
             let team = state.team.clone();
             let observation = sim.delayed_observation(team.clone(), None);
             let (
-                ball_x, ball_y, ball_vx, ball_vy,
+                mut ball_x, mut ball_y, ball_vx, ball_vy,
                 rod_position_calib, rod_angle
             ) = observation;
+
+            // When the ball is not detected on the real table, the system returns -1 for the position.
+            if expired {
+                ball_x = -1.0;
+                ball_y = -1.0;
+            }
 
             let camera_data_0 = http::CameraData {
                 cameraID: 0,
