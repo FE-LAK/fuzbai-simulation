@@ -2,6 +2,8 @@ use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::Instant};
 
 use tokio::runtime::Builder;
+use tokio::sync::Notify;
+
 
 const NUM_TOKIO_THREADS: usize = 4;
 const COMPETITION_DURATION_SECS: u64 = 120;
@@ -66,6 +68,11 @@ fn main() {
 
     /* Initialize tokio runtime and with it, the HTTP server */
     let states_clone = states.clone();
+
+    // Notification to wake the HTTP task, so that it can trigger a shutdown.
+    let shutdown_notify = Arc::new(Notify::new());
+    let shutdown_notify_clone = shutdown_notify.clone();
+
     let tokio_handle = std::thread::spawn(move || {
         let runtime = Builder::new_current_thread()
             .worker_threads(NUM_TOKIO_THREADS)
@@ -73,7 +80,7 @@ fn main() {
             .build()
             .unwrap();
 
-        runtime.block_on(http::http_task(states_clone));
+        runtime.block_on(http::http_task(states_clone, shutdown_notify_clone));
     });
 
     /* Initialize simulation */
@@ -128,49 +135,47 @@ fn main() {
             });
 
             ui.separator();
-            {
-                let mut state = COMPETITION_STATE.lock().unwrap();
-                match state.status {
-                    CompetitionStatus::Expired => {
-                        ui.horizontal(|ui| {
-                            if ui.button("Start").clicked() {
-                                state.status = CompetitionStatus::Running(Instant::now());
-                                state.pending.push_back(CompetitionPending::ResetScore);
-                                state.pending.push_back(CompetitionPending::ResetSimulation);
-                            }
+            let mut state = COMPETITION_STATE.lock().unwrap();
+            match state.status {
+                CompetitionStatus::Expired => {
+                    ui.horizontal(|ui| {
+                        if ui.button("Start").clicked() {
+                            state.status = CompetitionStatus::Running(Instant::now());
+                            state.pending.push_back(CompetitionPending::ResetScore);
+                            state.pending.push_back(CompetitionPending::ResetSimulation);
+                        }
 
-                            if ui.button("Swap teams").clicked() {
-                                let team_0 = &mut states[0].lock().unwrap().team;
-                                let team_1 = &mut states[1].lock().unwrap().team;
-                                let tmp = team_0.clone();
-                                *team_0 = team_1.clone();
-                                *team_1 = tmp;
-                            }
+                        if ui.button("Swap teams").clicked() {
+                            let team_0 = &mut states[0].lock().unwrap().team;
+                            let team_1 = &mut states[1].lock().unwrap().team;
+                            let tmp = team_0.clone();
+                            *team_0 = team_1.clone();
+                            *team_1 = tmp;
+                        }
 
-                            if ui.button("Reset score").clicked() {
-                                state.pending.push_back(CompetitionPending::ResetScore);
-                            }
-                        });
+                        if ui.button("Reset score").clicked() {
+                            state.pending.push_back(CompetitionPending::ResetScore);
+                        }
+                    });
 
-                        ui.label("Competition time expired");
-                    }
+                    ui.label("Competition time expired");
+                }
 
-                    CompetitionStatus::Running(timer) => {
-                        ui.horizontal(|ui| {
-                            if ui.button("Stop").clicked() {
-                                state.status = CompetitionStatus::Expired;
-                            }
+                CompetitionStatus::Running(timer) => {
+                    ui.horizontal(|ui| {
+                        if ui.button("Stop").clicked() {
+                            state.status = CompetitionStatus::Expired;
+                        }
 
-                            let rem_total_seconds = COMPETITION_DURATION_SECS - timer.elapsed().as_secs().min(COMPETITION_DURATION_SECS);
-                            let rem_minutes = rem_total_seconds / 60;
-                            let rem_seconds = rem_total_seconds % 60;
-                            ui.label(format!("Remaining: {rem_minutes:02}:{rem_seconds:02}",));
+                        let rem_total_seconds = COMPETITION_DURATION_SECS - timer.elapsed().as_secs().min(COMPETITION_DURATION_SECS);
+                        let rem_minutes = rem_total_seconds / 60;
+                        let rem_seconds = rem_total_seconds % 60;
+                        ui.label(format!("Remaining: {rem_minutes:02}:{rem_seconds:02}",));
 
-                            if rem_total_seconds == 0 {
-                                state.status = CompetitionStatus::Expired;
-                            }
-                        });
-                    }
+                        if rem_total_seconds == 0 {
+                            state.status = CompetitionStatus::Expired;
+                        }
+                    });
                 }
             }
         });
@@ -179,6 +184,7 @@ fn main() {
     viewer.render_loop();  // loop while viewer is running.
 
     /* Final cleanup */
+    shutdown_notify.notify_one();
     let _ = sim_thread.join();
     let _ = tokio_handle.join();
 }

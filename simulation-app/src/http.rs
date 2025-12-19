@@ -7,6 +7,7 @@ use actix_web::web;
 
 use fuzbai_simulator::PlayerTeam;
 use std::sync::{Arc, Mutex};
+use tokio::sync::Notify;
 
 
 /// Data received from a single camera.
@@ -128,7 +129,7 @@ pub struct State {
     pub drivesStates: StateDrivesState
 }
 
-pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2]) {
+pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Arc<Notify>) {
     let factory = |state: Arc<Mutex<ServerState>>| {
             let port = state.lock().unwrap().port;
             HttpServer::new(move || {
@@ -150,8 +151,18 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2]) {
     };
 
     let mut join_set = tokio::task::JoinSet::new();
-    for state in states {
-        join_set.spawn(factory(state.clone()));
+
+    let server_handles = states.map(|state| {
+        let server = factory(state.clone());
+        let handle = server.handle();
+        join_set.spawn(server);
+        handle
+    });
+
+    // Wait for the viewer to exit.
+    shutdown_notify.notified().await;
+    for handle in server_handles {
+        handle.stop(false).await;
     }
 
     while let Some(result) = join_set.join_next().await {
