@@ -1,34 +1,42 @@
-
-use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
-use serde::{Serialize, Deserialize};
-use tokio::runtime::Builder;
-use actix_files::{Files};
-use actix_web::web;
-
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
-use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::Instant};
+use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Duration, Instant}};
 
+use tokio::runtime::Builder;
 
 const NUM_TOKIO_THREADS: usize = 4;
+const COMPETITION_DURATION_SECS: u64 = 5;
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
 mod http;
 
-
-
 enum CompetitionPending {
-    ResetScore
+    ResetScore,
+    ResetSimulation
+}
+
+#[derive(PartialEq)]
+enum CompetitionStatus {
+    Stopped,
+    Running(Instant),
+    Expired
 }
 
 struct CompetitionState {
-    timer: Instant,
-    pending: VecDeque<CompetitionPending>
+    status: CompetitionStatus,
+    pending: VecDeque<CompetitionPending>,
+}
+
+impl CompetitionState {
+    /// Returns whether the competition time has ended.
+    fn expired(&self) -> bool {
+        self.status == CompetitionStatus::Expired
+    }
 }
 
 impl Default for CompetitionState {
     fn default() -> Self {
-        Self { timer: Instant::now(), pending: VecDeque::new() }
+        Self { status: CompetitionStatus::Stopped, pending: VecDeque::new() }
     }
 }
 
@@ -117,19 +125,56 @@ fn main() {
                     ui.checkbox(&mut state.builtin, "built-in");
                     ui.end_row();
                 }
-
-                if ui.button("Swap teams").clicked() {
-                    let team_0 = &mut states[0].lock().unwrap().team;
-                    let team_1 = &mut states[1].lock().unwrap().team;
-                    let tmp = team_0.clone();
-                    *team_0 = team_1.clone();
-                    *team_1 = tmp;
-                }
-
-                if ui.button("Reset score").clicked() {
-                    COMPETITION_STATE.lock().unwrap().pending.push_back(CompetitionPending::ResetScore);
-                }
             });
+
+            ui.separator();
+            {
+                let mut state = COMPETITION_STATE.lock().unwrap();
+                match state.status {
+                    CompetitionStatus::Stopped | CompetitionStatus::Expired => {
+                        ui.horizontal(|ui| {
+                            if ui.button("Start").clicked() {
+                                state.status = CompetitionStatus::Running(Instant::now());
+                                state.pending.push_back(CompetitionPending::ResetScore);
+                                state.pending.push_back(CompetitionPending::ResetSimulation);
+                            }
+
+                            if ui.button("Swap teams").clicked() {
+                                let team_0 = &mut states[0].lock().unwrap().team;
+                                let team_1 = &mut states[1].lock().unwrap().team;
+                                let tmp = team_0.clone();
+                                *team_0 = team_1.clone();
+                                *team_1 = tmp;
+                            }
+
+                            if ui.button("Reset score").clicked() {
+                                state.pending.push_back(CompetitionPending::ResetScore);
+                            }
+                        });
+
+                        if let CompetitionStatus::Expired = state.status {
+                            ui.label("Competition time expired");
+                        }
+                    }
+
+                    CompetitionStatus::Running(timer) => {
+                        ui.horizontal(|ui| {
+                            if ui.button("Stop").clicked() {
+                                state.status = CompetitionStatus::Stopped;
+                            }
+
+                            let rem_total_seconds = COMPETITION_DURATION_SECS - timer.elapsed().as_secs().min(COMPETITION_DURATION_SECS);
+                            let rem_minutes = rem_total_seconds / 60;
+                            let rem_seconds = rem_total_seconds % 60;
+                            ui.label(format!("Remaining: {rem_minutes:02}:{rem_seconds:02}",));
+
+                            if rem_total_seconds == 0 {
+                                state.status = CompetitionStatus::Expired;
+                            }
+                        });
+                    }
+                }
+            }
         });
     });
 
@@ -147,14 +192,20 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
             sim.reset_simulation();
         }
         sim.step_simulation();
-
+       
         let mut comp_state = COMPETITION_STATE.lock().unwrap();
         while let Some(pending) = comp_state.pending.pop_front() {
             match pending {
-                CompetitionPending::ResetScore => { sim.clear_score(); }
+                CompetitionPending::ResetScore => { sim.clear_score(); },
+                CompetitionPending::ResetSimulation => { sim.reset_simulation(); }
             }
         }
+
         drop(comp_state);
+
+        while COMPETITION_STATE.lock().unwrap().expired() && sim.viewer_running() {
+            std::thread::sleep(Duration::from_millis(500));
+        }
 
         /* Sync the simulation state with our competition state */
         let score = sim.score().clone();

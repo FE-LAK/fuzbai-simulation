@@ -2,12 +2,11 @@
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
 use serde::{Serialize, Deserialize};
-use tokio::runtime::Builder;
 use actix_files::{Files};
 use actix_web::web;
 
-use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
-use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::Instant};
+use fuzbai_simulator::PlayerTeam;
+use std::sync::{Arc, Mutex};
 
 
 /// Data received from a single camera.
