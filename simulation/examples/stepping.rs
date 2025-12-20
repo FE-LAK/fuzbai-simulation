@@ -5,7 +5,7 @@ use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 
 fn main() {
     let mut sim = FuzbAISimulator::new(
-        5, 5,
+        10, 5,
         true,
         0.055,
         None,
