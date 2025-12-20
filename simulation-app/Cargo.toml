@@ -1,0 +1,12 @@
+[package]
+name = "simulation-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-files = "0.6.9"
+actix-web = "4.12.1"
+fuzbai_simulator = { version = "3.7.0", path = "../simulation" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tokio = "1.48.0"

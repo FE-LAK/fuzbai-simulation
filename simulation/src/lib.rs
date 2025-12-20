@@ -2,12 +2,16 @@ use mujoco_rs::viewer::{MjViewer, ViewerSharedState};
 use mujoco_rs::prelude::*;
 use mujoco_rs;
 
+// Re-export for convenience
+pub use mujoco_rs::viewer::egui;
+
 use agent_rust::Agent as BuiltInAgent;
 
 use std::sync::{Arc, OnceLock, Mutex};
 use std::{collections::VecDeque};
 use std::cell::RefCell;
 use std::time::Instant;
+use std::fmt::Debug;
 use core::f64;
 
 use rand::distr::{Distribution, Uniform};
@@ -34,24 +38,24 @@ const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
 /// This has the benefit of consuming less memory (as the model is fixed).
 /// It is also required due to PyO3's aggressive checks for thread-safety and
 /// prohibition of Rust's lifetimes.
-pub static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
+static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
 thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
-    pub static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
+    static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
 }
-pub static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
+static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
 
 
 /* Enum definitions */
 #[cfg_attr(feature = "python-bindings", pyclass(eq, eq_int, module = "fuzbai_simulator"))]
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 #[repr(usize)] 
 /// Enumerates the two possible teams by color.
 pub enum PlayerTeam {
-    RED = 0,
-    BLUE
+    Red = 0,
+    Blue
 }
 
 #[cfg(feature = "python-bindings")]
@@ -61,7 +65,7 @@ impl PlayerTeam {
     /// Dummy constructor to allow pickle support
     #[new]
     fn new() -> Self {
-        Self::RED
+        Self::Red
     }
 
     fn __getstate__(&self) -> PyResult<usize> {
@@ -160,8 +164,9 @@ pub struct FuzbAISimulator {
     /// Controls whether the blue team (right) is controlled outside of this simulation (`true`)
     /// or by the internally stored agent (`false`).
     external_team_blue: bool,
-    /// The score (number of goals), formatted as: [RED - BLUE].
-    score: [usize; 2],
+
+    /// The score of each team (red, blue).
+    score: [u16; 2],
 
     /* Miscellaneous */
     /// Holds past observations up to [`MAX_DELAY_S`].
@@ -218,9 +223,8 @@ impl FuzbAISimulator {
         self.truncated
     }
 
-    /// Returns the current score. The score is formatted as: [RED - BLUE].
-    pub fn score(&self) -> [usize; 2] {
-        self.score
+    pub fn score(&self) -> &[u16; 2] {
+        &self.score
     }
 
     /// Returns the collision forces (relative to the red team).
@@ -279,8 +283,8 @@ impl FuzbAISimulator {
     pub fn observation(&self, team: PlayerTeam) -> ObservationType {
         let observation = self.observation_red();
         match team {
-            PlayerTeam::RED => observation,
-            PlayerTeam::BLUE => Self::transform_observation_red_to_blue(observation)
+            PlayerTeam::Red => observation,
+            PlayerTeam::Blue => Self::transform_observation_red_to_blue(observation)
         }
     }
 
@@ -304,8 +308,8 @@ impl FuzbAISimulator {
 
         let obs_red = self.delayed_memory[index];
         match team {
-            PlayerTeam::RED => obs_red,
-            PlayerTeam::BLUE => Self::transform_observation_red_to_blue(obs_red)
+            PlayerTeam::Red => obs_red,
+            PlayerTeam::Blue => Self::transform_observation_red_to_blue(obs_red)
         }
     }
 
@@ -351,7 +355,7 @@ impl FuzbAISimulator {
     /// Configures whether the specific `team` should obtain commands externally (`enable` = `true`)
     /// or internally (`enable` = `false`, the agent is stored within the simulation).
     pub fn set_external_mode(&mut self, team: PlayerTeam, enable: bool) {
-        if let PlayerTeam::RED = team {
+        if let PlayerTeam::Red = team {
             self.external_team_red = enable;
         }
         else {
@@ -414,13 +418,12 @@ impl FuzbAISimulator {
         ball_view.qfrc_applied.fill(0.0);
     }
 
-    /// Clears the score to [0-0];
-    pub fn clear_score(&mut self) {
-        self.score = [0, 0];
-    }
-
     pub fn clear_trace(&mut self) {
         self.visualizer.clear_trace();
+    }
+
+    pub fn clear_score(&mut self) {
+        self.score.fill(0);
     }
 
     /// Syncs the simulation state with the viewer.
@@ -443,7 +446,7 @@ impl FuzbAISimulator {
         self.delayed_memory.clear();
         self.clear_trace();
 
-        self.mj_data.reset();
+        self.mj_data.set_time(0.0);
         self.serve_ball(None);
         self.nudge_ball(None);
         self.mj_data.step1();
@@ -496,15 +499,15 @@ impl FuzbAISimulator {
 
             // Blue scored a goal
             if self.mj_red_goal_geom_ids.iter().any(|&id| id == geom_id) {
-                self.score[1] += 1;
                 self.terminated = true;
+                self.score[1] += 1;
                 break;
             }
 
             // Red scored a goal
             else if self.mj_blue_goal_geom_ids.iter().any(|&id| id == geom_id) {
-                self.score[0] += 1;
                 self.terminated = true;
+                self.score[0] += 1;
                 break;
             }
         }
@@ -709,11 +712,11 @@ impl FuzbAISimulator {
             internal_step_factor, sample_steps, simulated_delay_s, visual_config, realtime,
             mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
             mj_red_goal_geom_ids, mj_blue_goal_geom_ids,
-            score: [0, 0], 
             delayed_memory: VecDeque::new(),
             ball_last_moving_t: 0.0,
             external_team_red: true, external_team_blue: false,
-            terminated: true, truncated: false, current_time: 0.0, current_ll_step: 0,
+            terminated: true, truncated: false, score: [0; 2],
+            current_time: 0.0, current_ll_step: 0,
             collision_forces: [[0.0, 0.0, 0.0, 0.0]; 8], collision_indices: [-1; 8],
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
@@ -791,7 +794,7 @@ impl FuzbAISimulator {
     /// Sets new motor (rod movement) commands for the specified `team`.
     /// The commands will be applied at the next call to [`step_simulation`](FuzbAISimulator::step_simulation)
     pub fn set_motor_command(&mut self, commands: &[MotorCommand], team: PlayerTeam) {
-        let pending_cmds = if let PlayerTeam::RED = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
+        let pending_cmds = if let PlayerTeam::Red = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
         pending_cmds.clear();
         pending_cmds.extend_from_slice(commands);
         pending_cmds.shrink_to_fit();
@@ -799,11 +802,11 @@ impl FuzbAISimulator {
 
     /// Proxy method to the built-in player's `set_disabled` method.
     pub fn set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: &[usize]) {
-        if let PlayerTeam::RED = team {
-            self.red_builtin_player.set_disabled(indices.into());
+        if let PlayerTeam::Red = team {
+            self.red_builtin_player.set_disabled(indices);
         }
         else {
-            self.blue_builtin_player.set_disabled(indices.into());
+            self.blue_builtin_player.set_disabled(indices);
         }
     }
 
@@ -842,7 +845,7 @@ impl FuzbAISimulator {
 
         // Red team
         if !self.external_team_red {
-            obs = self.delayed_observation(PlayerTeam::RED, None);
+            obs = self.delayed_observation(PlayerTeam::Red, None);
             let (x, y, vx, vy, ..) = obs;
             self.pending_motor_cmd_red = self.red_builtin_player.get_action(x, y, vx, vy);
         }
@@ -858,7 +861,7 @@ impl FuzbAISimulator {
 
         // Blue team
         if !self.external_team_blue {
-            obs = self.delayed_observation(PlayerTeam::BLUE, None);
+            obs = self.delayed_observation(PlayerTeam::Blue, None);
             let (x, y, vx, vy, ..) = obs;
             self.pending_motor_cmd_blue = self.blue_builtin_player.get_action(x, y, vx, vy);
         }
@@ -875,7 +878,7 @@ impl FuzbAISimulator {
 
     /// Stores the current state into the delayed state buffer
     fn sample_state(&mut self) {
-        let obs = self.observation(PlayerTeam::RED);
+        let obs = self.observation(PlayerTeam::Red);
         if self.delayed_memory.len() >= MAX_DELAY_BUFFER_LEN {
             self.delayed_memory.pop_back();
         }
@@ -991,6 +994,7 @@ impl ViewerProxy {
     }
 }
 
+/// Rust-only methods.
 impl ViewerProxy {
     pub fn render(&self) {
         G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
@@ -1009,6 +1013,17 @@ impl ViewerProxy {
             }
         })
     }
+
+    pub fn add_ui_callback<F>(&self, callback: F)
+    where
+        F: FnMut(&egui::Context, &mut MjData<&MjModel>) + 'static
+    {
+        G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
+            if let Some(viewer) = maybe_viewer {
+                viewer.add_ui_callback(callback);
+            }
+        });
+    }
 }
 
 
@@ -1022,6 +1037,5 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ViewerProxy>()?;
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
-    // m.add_function(wrap_fu)?;
     Ok(())
 }

@@ -15,8 +15,8 @@ fn main() {
         )
     );
 
-    sim.set_external_mode(PlayerTeam::RED,false);
-    sim.set_external_mode(PlayerTeam::BLUE, true);
+    sim.set_external_mode(PlayerTeam::Red,false);
+    sim.set_external_mode(PlayerTeam::Blue, true);
 
     let sim_thread = std::thread::spawn(move || {
         while sim.viewer_running() {

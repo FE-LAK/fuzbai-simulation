@@ -1,0 +1,8 @@
+All the files in this directory and its subdirectories are taken from the original simulator:
+
+https://github.com/FE-LAK/FuzbAISim
+
+Copyright of Laboratory of Automation and Cybernetics (LAK) at Faculty for Electrical engineerning, University of Ljubljana).
+
+The exception are files inside the jquery-ui-1.13.0 directory and the jquery-3.6.0.min.js file.
+License of those can be found inside the jquery-ui-1.13.0 directory.
