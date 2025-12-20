@@ -19,6 +19,7 @@ pub(crate) struct TrapezoidMotorSystem<M: Deref<Target = MjModel>> {
 
     // Control
     target_pos: [f64; 8],
+    velocity_scaler: [f64; 8],
 
     // Stability
     direction: [f64; 8],
@@ -39,9 +40,10 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
         let target_velocity: [f64; 8] = [0.0; 8];
         let target_pos = [0.0; 8];
         let direction = [0.0; 8];
+        let velocity_scaler = [1.0; 8];
         Self {
             kp, kd, max_velocity, max_acceleration, joint_info, actuator_info,
-            target_velocity, target_pos, direction, stop_threshold, dead_band,
+            target_velocity, target_pos, velocity_scaler, direction, stop_threshold, dead_band,
             phantom: PhantomData
         }
     }
@@ -73,9 +75,10 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
                 -self.max_acceleration[act_id] * LOW_TIMESTEP * self.target_velocity[act_id].signum()
             };
 
+            let max_velocity = self.max_velocity[act_id] * self.velocity_scaler[act_id];
             self.target_velocity[act_id] += d_velocity;
-            self.target_velocity[act_id] = self.target_velocity[act_id].clamp(-self.max_velocity[act_id], self.max_velocity[act_id]);
-            let vel_error: f64 = self.target_velocity[act_id] - qvel;
+            self.target_velocity[act_id] = self.target_velocity[act_id].clamp(-max_velocity, max_velocity);
+            let vel_error = self.target_velocity[act_id] - qvel;
             let tanh_arg = (pos_error * 3.0 / self.stop_threshold).abs();
 
             // performance tuning
@@ -92,9 +95,10 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
 
     /// Sets a new position target.
     #[inline]
-    pub fn set_target(&mut self, act_id: usize, target: f64) {
+    pub fn set_target(&mut self, act_id: usize, target: f64, velocity_scaler: f64) {
         let diff = target - self.target_pos[act_id];
         let new_direction = diff.signum();
+        self.velocity_scaler[act_id] = velocity_scaler.clamp(0.0, 1.0);
         // We are outside the dead-zone or we are moving in the same direction
         if diff.abs() > self.dead_band[act_id] || new_direction == self.direction[act_id] {
             self.target_pos[act_id] = target;
