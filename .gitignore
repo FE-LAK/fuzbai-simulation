@@ -230,4 +230,5 @@ cython_debug/
 # Stub files
 *.pyi
 
-Cargo.lock
+# MuJoCo log files
+MUJOCO_LOG.TXT

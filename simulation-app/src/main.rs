@@ -1,9 +1,8 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
-use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::Instant};
+use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
-
 
 const NUM_TOKIO_THREADS: usize = 4;
 const COMPETITION_DURATION_SECS: u64 = 120;
