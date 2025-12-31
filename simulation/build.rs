@@ -30,5 +30,6 @@ pub fn compile_model() {
         }
 
         mj_saveModel(model, output_path.as_ptr(), ptr::null_mut(), 0);
+        mj_deleteModel(model);
     }
 }
