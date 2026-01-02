@@ -27,9 +27,9 @@ cmake --build build --parallel --target mujoco --config=Release
 sync
 cd $CWD
 
-# Build simulation
-cd simulation/
+# Build simulation app
+cd simulation-app/
 export MUJOCO_STATIC_LINK_DIR=$(realpath ../mujoco/build/lib/)
-cargo build --release --lib  # compile the simulation itself
+cargo build --release
 sync
 cd $CWD
