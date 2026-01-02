@@ -8,7 +8,7 @@ COMPILER_CPP=clang++-13
 CWD=$(pwd)
 CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE:STRING=Release \
-    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION:BOOL=ON \
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION:BOOL=OFF \
     -DCMAKE_INSTALL_PREFIX:STRING=${TMPDIR}/mujoco_install \
     -DMUJOCO_BUILD_EXAMPLES:BOOL=OFF \
     -DBUILD_SHARED_LIBS:BOOL=OFF \
@@ -23,7 +23,7 @@ CMAKE_ARGS=(
 cd mujoco/
 cmake -B build -S . "${CMAKE_ARGS[@]}"
 sync
-cmake --build build --parallel --target glfw libmujoco_simulate --config=Release
+cmake --build build --parallel --target mujoco --config=Release
 sync
 cd $CWD
 
