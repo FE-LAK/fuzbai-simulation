@@ -1,4 +1,4 @@
-# Docker file for building MuJoCo. This should match MuJoCo's official build environment.
+# Docker file for building MuJoCo, and simulation.
 ARG UBUNTU_VERSION=22.04
 FROM ubuntu:${UBUNTU_VERSION}
 
@@ -8,10 +8,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN echo "keyboard-configuration  keyboard-configuration/layoutcode string us" | debconf-set-selections && \
     echo "keyboard-configuration  keyboard-configuration/xkb-keymap select us" | debconf-set-selections
 
-RUN apt update
+RUN apt-get update
 
 # Build tools
-RUN apt install -y \
+RUN apt-get install -y \
+    wget=1.21.2-2ubuntu1.1 \
     build-essential=12.9ubuntu3 \
     cmake=3.22.1-1ubuntu1.22.04.2 \
     curl=7.81.0-1ubuntu1.21 \
@@ -29,13 +30,13 @@ RUN apt install -y \
 
 # Cleanup
 # Remove cached package files (*.deb)
-RUN apt clean
+RUN apt-get clean
 
 # Remove package files that can no longer be downloaded
-RUN apt autoclean
+RUN apt-get autoclean
 
 # Remove packages that were installed as dependencies but are no longer needed
-RUN apt autoremove -y
+RUN apt-get autoremove -y
 
 # Rust
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
