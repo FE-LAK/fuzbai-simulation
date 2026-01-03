@@ -48,6 +48,13 @@ on each PC where this will be used.
 
 # Building
 
+Both of the below cases can be handled via the build script:
+- Linux (make sure to run ``./fetch_mujoco.sh`` first to download mujoco):
+
+    ```shell
+    ./build_linux.sh --help
+    ```
+
 ## Rust
 Standard interface (``cargo build --release``).
 
