@@ -53,7 +53,8 @@ if [ "$APP" = "y" ]; then
     cargo build --release
     sync
     cd $CWD
-    cp simulation-app/target/release/* -rf $OUTPUT
+    cp simulation-app/target/release/simulation-app $OUTPUT
+    cp -rf simulation-app/www/ $OUTPUT
     cp mujoco-3.3.7/lib/* $OUTPUT
 fi
 
