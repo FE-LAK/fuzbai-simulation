@@ -236,3 +236,6 @@ MUJOCO_LOG.TXT
 # Other downloads
 *.tar.gz
 *.zip
+
+# Offline Cargo
+vendor/
