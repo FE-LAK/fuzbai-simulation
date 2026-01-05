@@ -1,0 +1,3 @@
+# Ignore Cargo.lock here as the workspace Cargo.lock should be used.
+# This allows the same package versions to be used for both the simulation library and the simulation app itself.
+Cargo.lock

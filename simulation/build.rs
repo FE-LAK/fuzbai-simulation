@@ -11,7 +11,7 @@ fn main() {
 
     // The compiler is part of the MuJoCo's sample programs in official MuJoCo builds.
     let _ = std::fs::remove_file(OUTPUT_PATH);
-    let output = std::process::Command::new("../mujoco-3.3.7/bin/compile")
+    std::process::Command::new("../mujoco-3.3.7/bin/compile")
         .arg(MODEL_PATH)
         .arg(OUTPUT_PATH)
         .output()

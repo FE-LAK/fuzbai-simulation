@@ -2,8 +2,10 @@
 # Builds the simulation-app/ competition application.
 # Prepare variables
 CWD=$(pwd)
-OUTPUT=target/
-CLEAN_DIRS=(target/ simulation/target/ simulation-app/target/ fuzbai-agent/target/)
+OUTPUT=target/BUILD_OUTPUT_HERE
+OUTPUT_APP=$OUTPUT/simulation-app
+OUTPUT_PYTHON=$OUTPUT/python
+CLEAN_DIRS=(target/)
 
 # Default values
 APP="y"
@@ -49,22 +51,22 @@ mkdir $OUTPUT -p
 
 # Build application
 if [ "$APP" = "y" ]; then
-    cd simulation-app
-    cargo build --release
+    cargo build --release -p simulation-app --locked
     sync
-    cd $CWD
-    cp simulation-app/target/release/simulation-app $OUTPUT
-    cp -rf simulation-app/www/ $OUTPUT
-    cp mujoco-3.3.7/lib/* $OUTPUT
+    mkdir $OUTPUT_APP -p
+    cp ./target/release/simulation-app $OUTPUT_APP
+    cp -rf simulation-app/www/ $OUTPUT_APP
+    cp mujoco-3.3.7/lib/* $OUTPUT_APP
 fi
 
 # Build Python bindings
 if [ "$PYTHON" = "y" ]; then
-    cd simulation
-    maturin build --release
+    cd simulation/
+    maturin build --release --locked
     sync
     cd $CWD
-    cp simulation/target/wheels/* -rf $OUTPUT
+    mkdir $OUTPUT_PYTHON -p
+    cp ./target/wheels/* -rf $OUTPUT_PYTHON
 fi
 
 echo "============================="
