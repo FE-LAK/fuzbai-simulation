@@ -56,7 +56,12 @@ if [ "$APP" = "y" ]; then
     mkdir $OUTPUT_APP -p
     cp ./target/release/simulation-app $OUTPUT_APP
     cp -rf simulation-app/www/ $OUTPUT_APP
-    cp mujoco-3.3.7/lib/* $OUTPUT_APP
+
+    if [ -e mujoco-3.3.7/lib/libmujoco.so ]; then  # Linux
+        cp mujoco-3.3.7/lib/libmujoco* $OUTPUT_APP
+    else  # Windows
+        cp mujoco-3.3.7/bin/mujoco.dll $OUTPUT_APP
+    fi
 fi
 
 # Build Python bindings
