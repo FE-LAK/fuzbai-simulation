@@ -22,4 +22,7 @@ classifiers = [
 bindings = "pyo3"
 compatibility = "manylinux_2_35"
 features = ["python-bindings"]
-include = ["../mujoco-3.3.7/lib/*"]
+include = [
+  "../mujoco-3.3.7/lib/*.so",
+  "../mujoco-3.3.7/bin/*.dll",
+]
