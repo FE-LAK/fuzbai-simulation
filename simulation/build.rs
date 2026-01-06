@@ -1,5 +1,7 @@
 //! Build script for compiling an XML MuJoCo model into MJB.
 //! This is used for easier embedding inside the binary.
+#[cfg(windows)]
+use std::path::PathBuf;
 
 fn main() {
     println!("cargo::rerun-if-changed=./build.rs");  // This build script changed.
@@ -16,4 +18,25 @@ fn main() {
         .arg(OUTPUT_PATH)
         .output()
         .expect("failed to compile MuJoCo model from XML to MJB.");
+
+    // Copy the MuJoCo DLL for proper embedding in the Python wheel.
+    #[cfg(windows)]
+    #[cfg(feature = "python-bindings")]
+    copy_mujoco()
+}
+
+#[cfg(windows)]
+#[cfg(feature = "python-bindings")]
+fn copy_mujoco() {
+    // These are a dependency of MuJoCo-rs, thus one of them must exist
+
+    if let Ok(mujoco_dir) = std::env::var("MUJOCO_DYNAMIC_LINK_DIR")
+        .map(|md| PathBuf::from(md).parent().unwrap().to_path_buf())
+    {
+        let dest_path = PathBuf::from("src/");
+        std::fs::create_dir_all(&dest_path).unwrap();
+
+        let dll_path = mujoco_dir.join("bin/mujoco.dll");
+        std::fs::copy(dll_path, "src/");
+    }
 }
