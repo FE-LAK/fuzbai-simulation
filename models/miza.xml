@@ -129,10 +129,13 @@
             <geom type="box" size="0.0577415 0.12425 0.0855" pos="0.057752500000000005 0.60275 0.0855" friction="0 0 0" solref="0.02 0.25"/>
 
             <!-- Goal levo-zadaj -->
-            <geom name="left-goal-back" type="box" size="0.0185 0.1025 0.1725" pos="0.0185 0.376 -0.0015"/>
+            <geom name="left-goal-back" type="box" size="0.0185 0.1025 0.1725" pos="0.0185 0.376 -0.0015" solref="0.004 1"/>
+
+            <!-- Goal levo-zadaj-odboj -->
+            <geom type="box" size="0.010 0.1025 0.07" pos="0.057 0.376 0.050" euler="0 45 0" solref="0.004 1"/>
 
             <!-- Goal levo-luknja-spodaj -->
-            <geom name="left-goal-hole" type="box" size="0.060 0.1500 0.002" pos="0.060 0.376 -0.176"/>
+            <geom name="left-goal-hole" type="box" size="0.035 0.1025 0.025" pos="0.072 0.376 -0.149" solref="0.004 1"/>
 
             <!-- Goal levo-precka -->
             <geom type="box" size="0.039 0.105 0.025875" pos="0.076 0.376 0.11925"/>
@@ -146,10 +149,12 @@
             <geom type="box" size="0.0577415 0.12425 0.0855" pos="1.3792585000000002 0.60275 0.0855" friction="0 0 0" solref="0.02 0.25"/>
 
             <!-- Goal desno-zadaj -->
-            <geom name="right-goal-back" type="box" size="0.0185 0.1025 0.1725" pos="1.4185 0.376 -0.0015"/>
+            <geom name="right-goal-back" type="box" size="0.0185 0.1025 0.1725" pos="1.4185 0.376 -0.0015" solref="0.004 1"/>
+            <!-- Goal desno-zadaj-odboj -->
+            <geom type="box" size="0.010 0.1025 0.07" pos="1.38 0.376 0.050" euler="0 -45 0" solref="0.004 1"/>
 
             <!-- Goal desno-luknja-spodaj -->
-            <geom name="right-goal-hole" type="box" size="0.060 0.1500 0.002" pos="1.377 0.376 -0.176"/>
+            <geom name="right-goal-hole" type="box" size="0.035 0.1025 0.025" pos="1.365 0.376 -0.149" solref="0.004 1"/>
 
             <!-- Goal desno-precka -->
             <geom type="box" size="0.039 0.105 0.025875" pos="1.361 0.376 0.11925"/>

@@ -1,0 +1,49 @@
+# Docker file for building simulation.
+# It can be used to build the simulation binary or Python bindings.
+ARG UBUNTU_VERSION=22.04
+FROM ubuntu:${UBUNTU_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Pre-answer the keyboard questions
+RUN echo "keyboard-configuration  keyboard-configuration/layoutcode string us" | debconf-set-selections && \
+    echo "keyboard-configuration  keyboard-configuration/xkb-keymap select us" | debconf-set-selections
+
+# Build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget=1.21.2-2ubuntu1.1 \
+    curl=7.81.0-1ubuntu1.21 \
+    build-essential=12.9ubuntu3 \
+    ca-certificates=20240203~22.04.1 && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/* 
+
+# Rust
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile=minimal --default-toolchain=1.92 && \
+    rm -rf /root/.cargo/git /root/.cargo/registry /root/.rustup/downloads /root/.rustup/tmp
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Python
+# Copy requirements first for caching
+COPY requirements_py.txt /tmp/pydeps/
+ENV PATH="/root/.local/bin:${PATH}"
+# uv install, create venv, install pip deps, clean caches
+RUN curl -LsSf https://astral.sh/uv/install.sh | bash && \
+    /root/.local/bin/uv python install 3.11 && \
+    /root/.local/bin/uv venv -p 3.11 && \
+    /root/.local/bin/uv pip install -r /tmp/pydeps/requirements_py.txt && \
+    /root/.local/bin/uv cache clean && \
+    rm -rf /tmp/pydeps/ /root/.cache/uv
+
+RUN echo "source /$ENVIRONMENT_PATH/.venv/bin/activate" >> /root/.bashrc
+
+WORKDIR /build/
+
+#############################
+# How to run in Docker:
+#############################
+# -----------------------------------------
+# docker buildx build . -t fuzbai
+# -----------------------------------------
+# docker run --rm --volume .:/build/ -it fuzbai:latest
+# -----------------------------------------

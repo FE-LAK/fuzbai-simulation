@@ -216,6 +216,7 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
         drop(comp_state);
 
         if sim.terminated() || sim.truncated() {
+            println!("Score (Red-Blue): {:?}", sim.score());
             sim.reset_simulation();
         }
         sim.step_simulation();

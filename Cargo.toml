@@ -1,0 +1,7 @@
+# Common workspace for simulation and the simulation application.
+# This workspace exists for allowing a single Cargo.lock to be used for both subpackages.
+# Build with cargo build --release -p <package name>
+
+[workspace]
+resolver = "3"
+members = ["simulation-app", "simulation"]

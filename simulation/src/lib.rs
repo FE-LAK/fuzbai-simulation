@@ -194,8 +194,8 @@ pub struct FuzbAISimulator {
     mj_data_act_ball_damp_y: MjActuatorDataInfo,
 
     /* Contact detection */
-    mj_red_goal_geom_ids: [i32; 2],
-    mj_blue_goal_geom_ids: [i32; 2],
+    mj_red_goal_geom_id: i32,
+    mj_blue_goal_geom_id: i32,
 
     collision_forces: [[f64; 4]; 8],
     collision_indices: [isize; 8],
@@ -491,6 +491,10 @@ impl FuzbAISimulator {
         self.update_visuals();
 
         /* Update high-level state */
+        let ball_joint_view = self.mj_data_joint_ball.view(&self.mj_data);
+        let ball_global_z_pos = ball_joint_view.qpos.as_ref()[2];
+        let ball_global_vel = ball_joint_view.qvel.as_ref();
+
         // Termination (goal scored)
         let contacts = self.mj_data.contacts();
         let mut geom_id;
@@ -498,14 +502,14 @@ impl FuzbAISimulator {
             geom_id = contact.geom2;
 
             // Blue scored a goal
-            if self.mj_red_goal_geom_ids.iter().any(|&id| id == geom_id) {
+            if self.mj_red_goal_geom_id == geom_id {
                 self.terminated = true;
                 self.score[1] += 1;
                 break;
             }
 
             // Red scored a goal
-            else if self.mj_blue_goal_geom_ids.iter().any(|&id| id == geom_id) {
+            else if self.mj_blue_goal_geom_id == geom_id {
                 self.terminated = true;
                 self.score[0] += 1;
                 break;
@@ -513,10 +517,7 @@ impl FuzbAISimulator {
         }
 
         // Truncation
-        let ball_joint_view = self.mj_data_joint_ball.view(&self.mj_data);
-        let ball_global_pos = ball_joint_view.qpos.as_ref();
-        let ball_global_vel = ball_joint_view.qvel.as_ref();
-        if ball_global_pos[2] < TERMINATION_Z_LEVEL {
+        if ball_global_z_pos < TERMINATION_Z_LEVEL {
             self.terminated = true;
         }
 
@@ -665,16 +666,8 @@ impl FuzbAISimulator {
         let mj_data_act_rod_rot= std::array::from_fn(|i| mj_data.actuator(&format!("p{}_revolute_ctrl", i+1)).unwrap());
 
         // Find geom IDs of the individual goals. This is used for detecting scored goals.
-        let mj_red_goal_geom_ids = [
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-hole"),
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-back"),
-            
-        ];
-
-        let mj_blue_goal_geom_ids = [
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-hole"),
-            model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-back"),
-        ];
+        let mj_red_goal_geom_id = model.name_to_id(MjtObj::mjOBJ_GEOM, "left-goal-hole");
+        let mj_blue_goal_geom_id = model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-hole");
 
         // Initialize internal player teams
         let mut red_builtin_player = BuiltInAgent::new(simulated_delay_s);
@@ -711,7 +704,7 @@ impl FuzbAISimulator {
         Self {
             internal_step_factor, sample_steps, simulated_delay_s, visual_config, realtime,
             mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
-            mj_red_goal_geom_ids, mj_blue_goal_geom_ids,
+            mj_red_goal_geom_id, mj_blue_goal_geom_id,
             delayed_memory: VecDeque::new(),
             ball_last_moving_t: 0.0,
             external_team_red: true, external_team_blue: false,
