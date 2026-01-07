@@ -1,2 +1,4 @@
 # Library Cargo.lock files are ignored anyway
 Cargo.lock
+# Coped for packing Python on Windows
+fuzbai_simulator/mujoco.dll

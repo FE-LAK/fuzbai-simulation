@@ -7,15 +7,21 @@ This repository contains multiple possible target packages:
 - the simulation application (under ``simulation-app/``);
 - other unrelated packages.
 
-# Environment setup
-*Below setup is also described in [here](https://mujoco-rs.readthedocs.io/en/v2.2.x/installation.html#dynamic-linking-official-mujoco-build) under "Manual download"*.
 
-**Skip this unless you're building yourself.**
+----- 
+
+**Skip everything below unless you're building yourself.**
+
+
+# Environment setup
 
 A Dockerfile is prepared for reproducible (and manylinux-compatible) builds:
 - Dockerfile.minimal (Recommended): for building anything but MuJoCo itself;
 - *Dockerfile.full* environment for building the modified `mujoco/` repository
   which enables static linking. Note that the setup files consider dynamic linking.
+
+# Build setup
+*Below setup is also described in [here](https://mujoco-rs.readthedocs.io/en/v2.2.x/installation.html#dynamic-linking-official-mujoco-build) under "Manual download"*.
 
 ## Linux
 
@@ -46,14 +52,33 @@ Note that the simulation application already does that.
 Alternatively, copy ``mujoco-3.3.7/lib/*.so`` to e.g., ``/usr/local/lib/``
 on each PC where this will be used.
 
+## Windows
+In powershell, execute
+```shell
+.\fetch_mujoco_windows.ps1
+```
+to fetch and extract MuJoCo.
+
+Then, setup the environmental variables
+```shell
+.\setup_windows.ps1
+```
+
+
 # Building
 
 Both of the below cases can be handled via the build script:
-- Linux (make sure to run ``./fetch_mujoco.sh`` first to download mujoco):
 
-    ```shell
-    ./build_linux.sh --help
-    ```
+- Linux:
+  ```shell
+  ./build_linux.sh --help
+  ```
+
+- Windows:
+  ```shell
+  .\build_windows.ps1 --help
+  ```
+
 
 ## Rust
 Standard interface (``cargo build --release``).
@@ -69,4 +94,14 @@ Only the simulation library can be compiled to Python bindings:
 ```shell
 cd simulation/
 maturin build --release
+```
+Maturin can be installed with ``pip install -r requirements_py.txt``.
+
+or
+```shell
+# Linux
+./build_linux.sh --app=n --python=y
+
+# Windows
+.\build_windows.ps1 --app=n --python=y
 ```

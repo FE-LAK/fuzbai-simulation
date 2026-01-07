@@ -13,8 +13,7 @@ if is_windows:
 from .fuzbai_simulator import *
 
 if is_windows:
-    os.name == "nt"
+    dll_dir_handle.close()
 
 del Path
 del os
-

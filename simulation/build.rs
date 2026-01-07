@@ -33,10 +33,7 @@ fn copy_mujoco() {
     if let Ok(mujoco_dir) = std::env::var("MUJOCO_DYNAMIC_LINK_DIR")
         .map(|md| PathBuf::from(md).parent().unwrap().to_path_buf())
     {
-        let dest_path = PathBuf::from("src/");
-        std::fs::create_dir_all(&dest_path).unwrap();
-
         let dll_path = mujoco_dir.join("bin/mujoco.dll");
-        std::fs::copy(dll_path, "src/");
+        std::fs::copy(dll_path, "fuzbai_simulator/mujoco.dll").expect("failed to copy mujoco.dll");
     }
 }
