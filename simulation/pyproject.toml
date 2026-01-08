@@ -22,3 +22,4 @@ classifiers = [
 bindings = "pyo3"
 compatibility = "manylinux_2_35"
 features = ["python-bindings"]
+include = ["fuzbai_simulator/mujoco.dll"]
