@@ -97,25 +97,26 @@ pub struct VisualConfig {
 #[pymethods]
 impl VisualConfig {
     #[new]
-    pub fn py_new(trace_length: usize, trace_ball: bool, trace_rod_mask: u64, enable_viewer: bool) -> Self {
+    fn py_new(trace_length: usize, trace_ball: bool, trace_rod_mask: u64, enable_viewer: bool) -> Self {
         Self::new(trace_length, trace_ball, trace_rod_mask, enable_viewer)
     }
 
     #[staticmethod]
     #[pyo3(name = "player_mask")]
-    pub fn py_player_mask(rod_index: usize, player_indices: Vec<usize>) -> u64 {
+    fn py_player_mask(rod_index: usize, player_indices: Vec<usize>) -> u64 {
         Self::player_mask(rod_index, &player_indices)
     }
 }
 
 impl VisualConfig {
+    /// Construct a new [`VisualConfig`].
     pub fn new(
         trace_length: usize, trace_ball: bool, trace_rod_mask: u64, enable_viewer: bool
     ) -> Self {
         VisualConfig {trace_length, trace_ball, trace_rod_mask, enable_viewer}
     }
 
-    /// Creates the mask needed for [`VisualConfig.new`].
+    /// Creates the mask needed for [`VisualConfig::new`].
     /// To visualize multiple rods use the OR operator:
     /// `player_mask(0, vec![0]) | player_mask(2, vec![0, 2])`.
     pub fn player_mask(rod_index: usize, player_indices: &[usize]) -> u64 {
@@ -215,24 +216,31 @@ pub struct FuzbAISimulator {
 
 #[cfg_attr(feature = "python-bindings", pymethods)]
 impl FuzbAISimulator {
+    /// Checks whether the simulation episode is terminated (goal scored or ball out of the field).
     pub fn terminated(&self) -> bool {
         self.terminated
     }
 
+    /// Checks whether the simulation episode is truncated (ball stood still for 3 seconds).
     pub fn truncated(&self) -> bool {
         self.truncated
     }
 
+    /// Returns the current score in form `[red score, blue score]`.
     pub fn score(&self) -> &[u16; 2] {
         &self.score
     }
 
     /// Returns the collision forces (relative to the red team).
+    /// Format: (fx, fy, fz, fx + fz.max(-fx).min(0.0))
     pub fn collision_forces(&self) -> [[f64; 4]; 8] {
         self.collision_forces
     }
 
     /// Returns the collision indices (relative to the red team).
+    /// These are the indices of MuJoCo geoms per rod,
+    /// i.e., `indices[0]` means the geom ids of the geom in contact with the
+    /// goalkeeper rod (and players).
     pub fn collision_indices(&self) -> [isize; 8] {
         self.collision_indices
     }
@@ -243,6 +251,9 @@ impl FuzbAISimulator {
     }
 
     /// Checks if the viewier is still running.
+    /// Note that when this is false, the viewer is not yet closed.
+    /// It is closed upon destroying the viewer object, which only happens
+    /// when the entire program terminates.
     pub fn viewer_running(&self) -> bool {
         G_VIEWER_SHARED_STATE.get().map_or(
             false,  // if it doesn't exist, then it can't be running
@@ -250,16 +261,28 @@ impl FuzbAISimulator {
         )
     }
 
-    /// Returns the ball's TRUE state (without noise) in the format
-    /// (x, y, z, vx, vy)
+    /// Returns the ball's true state (without noise) in the format. This is relative
+    /// to the red team's coordinate system.
+    /// Format: (x [mm], y[mm], z[mm], vx [m/s], vy[m/s]).
+    /// 
+    /// # Note
+    /// The `z-` coordinate increases when the ball is moved up in the global coordinate system.
+    /// The `z-` coordinate is not available on the true football table and is here for debugging,
+    /// analysis and gameplay control purposes.
     pub fn ball_true_state(&self) -> [f64; 6] {
         let ball_view = self.mj_data_joint_ball.view(&self.mj_data);
         let [x, y, z, ..] = *ball_view.qpos else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
         let [vx, vy, vz, ..] = *ball_view.qvel else {panic!("{}", E_NOT_ENOUGH_ELEMENTS)};
 
-        [1000.0 * x - 115.0, 727.0 - 1000.0 * y, 1000.0 * z, vx, -vy, vz]
+        [1000.0 * x - 115.0, 727.0 - 1000.0 * y, 1000.0 * (z - Z_FIELD), vx, -vy, vz]
     }
 
+    /// Returns the true state of the player rods (from red side (left) towards blue side).
+    /// There is no noise added on the returned data.
+    /// Format: (rod translations [0, 1], rod rotations [-64, 64],
+    /// rod translational velocity [m/s], rod translational velocity [rad/s]).
+    /// Note that only the translations and rotations are available on the real table, the velocities are here
+    /// for debugging purposes.
     pub fn rods_true_state(&self) -> ([f64; 8], [f64; 8], [f64; 8], [f64; 8]) {
         let mut rod_trans = [0.0; 8];
         let mut rod_rot = [0.0; 8];
@@ -279,7 +302,8 @@ impl FuzbAISimulator {
     /// The observation represents real-world like state with added
     /// noise. It includes the ball's state and the state of each rod.
     /// The parameter `team` controls which team's coordinate system the data should be relative to.
-    /// The returned data is in format (ball_state, rod_positions, rod_rotations)
+    /// The returned data is in format (ball_state: (x [mm], y [mm], vx [m/s], vy [m/s]),
+    /// rod_positions: (8 * [0, 1]), rod_rotations: 8 * [-64, 64]).
     pub fn observation(&self, team: PlayerTeam) -> ObservationType {
         let observation = self.observation_red();
         match team {
@@ -289,7 +313,8 @@ impl FuzbAISimulator {
     }
 
     /// Same as [`observation`](FuzbAISimulator::observation) but delayed.
-    /// The delay can be optionally specified by `delay`, otherwise the internally set one is used.
+    /// The delay can be optionally specified by `delay`.
+    /// To use the constructor-set delay (at initialization), pass [`None`].
     pub fn delayed_observation(&self, team: PlayerTeam, delay: Option<f64>)  -> ObservationType {
         let delay = delay.unwrap_or(self.simulated_delay_s);
         if delay == 0.0 || self.delayed_memory.is_empty() {
@@ -320,6 +345,9 @@ impl FuzbAISimulator {
         self.blue_builtin_player.set_delay(simulated_delay_s);
     }
 
+    /// Configures the damping actuator of the ball.
+    /// This methods sets the damping for `x-` and `y-` axes separately.
+    /// Valid range is [0.0, 0.3].
     pub fn set_ball_damping(&mut self, damping: XYType) {
         self.mj_data_act_ball_damp_x.view_mut(&mut self.mj_data).ctrl[0] = damping[0];
         self.mj_data_act_ball_damp_y.view_mut(&mut self.mj_data).ctrl[0] = damping[1];
@@ -375,7 +403,8 @@ impl FuzbAISimulator {
         }
     }
 
-    /// Servers the ball to a given `position`.
+    /// Servers the ball to a given `position` (given in red's coordinate system and in millimeters).
+    /// Passing [`None`] spawns the ball at the default position: [`DEFAULT_BALL_POSITION`] (standard serving location).
     pub fn serve_ball(&mut self, position: Option<XYZType>) {
         let mut ball_view = self.mj_data_joint_ball.view_mut(&mut self.mj_data);
         let position = if let Some(xyz) = position {
@@ -388,6 +417,8 @@ impl FuzbAISimulator {
         ball_view.qpos[3..].copy_from_slice(&[1.0, 0.0, 0.0, 0.0]); // 0 rotation
     }
 
+    /// Gives the ball the `velocity` (given in the red's coordinate system and in meters per second).
+    /// If [`None`] is given, A small value is sampled randomly.
     pub fn nudge_ball(&mut self, velocity: Option<XYZType>) {
         let mut ball_view = self.mj_data_joint_ball.view_mut(&mut self.mj_data);
         if let Some(v) = velocity {
@@ -418,10 +449,12 @@ impl FuzbAISimulator {
         ball_view.qfrc_applied.fill(0.0);
     }
 
+    /// Clears the rod and ball trace showing past positions.
     pub fn clear_trace(&mut self) {
         self.visualizer.clear_trace();
     }
 
+    /// Sets the score of both teams to 0.
     pub fn clear_score(&mut self) {
         self.score.fill(0);
     }
@@ -435,6 +468,10 @@ impl FuzbAISimulator {
         }
     }
 
+    /// Reset the simulation state.
+    /// Specifically, this resets [`terminated`](FuzbAISimulator::terminated) and
+    /// [`truncated`](FuzbAISimulator::truncated) flags, sets the simulation time to 0, clears the trace,
+    /// clears the delay buffer, and serves the ball.
     pub fn reset_simulation(&mut self) {
         self.terminated = false;
         self.truncated = false;
@@ -452,6 +489,16 @@ impl FuzbAISimulator {
         self.mj_data.step1();
     }
 
+    /// Advance the simulation by [internal_step_factor](FuzbAISimulator::internal_step_factor).
+    /// Before stepping, motor commands are applied once.
+    /// Every [sample_steps](FuzbAISimulator::sample_steps) of sub-steps, the delay buffer records the simulation state.
+    /// Each sub-step, collision indices and forces acted on the ball, from each rod, get updated
+    /// based on the following rule: if the current **pure** x-force `fx` (i.e., `fx + fz.max(-fx).min(0.0)`) is larger
+    /// than the current maximum (in this high-level step), update the force to the current force and
+    /// update the collision indices.
+    /// Each sub-step, simulation state is also synced with viewer.
+    /// 
+    /// After performing all the substeps, goal detection and a ball truncation check are performed.
     pub fn step_simulation(&mut self) {
         self.clear_collisions();
         self.apply_motor_commands();
@@ -611,6 +658,7 @@ impl FuzbAISimulator {
 
 /// Non-Python exposed methods
 impl FuzbAISimulator {
+    /// Constructs a new [`FuzbAISimulator`].
     pub fn new(
         internal_step_factor: usize,
         sample_steps: usize,
