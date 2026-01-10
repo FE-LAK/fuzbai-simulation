@@ -48,10 +48,10 @@ fn main() {
     let _ = args.next().unwrap();  // program path;
 
     let port_0 = args.next()
-        .unwrap_or("8080".into())
+        .unwrap_or_else(|| "8080".into())
         .parse::<u16>().expect("passed team 1 port passed was invalid");
     let port_1 = args.next()
-        .unwrap_or("8081".into())
+        .unwrap_or_else(|| "8081".into())
         .parse::<u16>().expect("passed team 2 port passed was invalid");
 
     /* Initialize states for each team */

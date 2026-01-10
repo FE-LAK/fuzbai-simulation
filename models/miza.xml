@@ -24,7 +24,7 @@
     <option integrator="implicitfast" cone="elliptic"/>
 
     <!-- Override memory for contacts to reduce space -->
-    <size memory="500k"/>
+    <size memory="1M"/>
 
     <!-- Default classes for repeated geoms -->
     <default>
