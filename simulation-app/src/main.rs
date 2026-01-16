@@ -6,12 +6,15 @@ use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
+use traits::LockOrUnpoison;
+
 const NUM_TOKIO_THREADS: usize = 4;
 const COMPETITION_DURATION_SECS: u64 = 120;
 const EXPIRED_BALL_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
+mod traits;
 mod http;
 
 
@@ -22,10 +25,11 @@ unsafe extern "C" fn handle_mujoco_error(c_error_message: *const std::os::raw::c
         }
     }
 
-    let mut lock = COMPETITION_STATE.lock().unwrap();
+    let mut lock = COMPETITION_STATE.lock_no_poison();
     lock.pending.push_back(CompetitionPending::ReloadSimulation);
     println!("Reloading simulation state due to internal MuJoCo error");
 }
+
 
 enum CompetitionPending {
     ResetScore,
@@ -141,7 +145,7 @@ fn main() {
                 ui.label("Score");
                 ui.end_row();
                 for state in &states {
-                    let mut state = state.lock().unwrap();
+                    let mut state = state.lock_no_poison();
                     let team = &state.team;
                     let team_name = &state.team_name;
                     let port = state.port;
@@ -155,7 +159,7 @@ fn main() {
             });
 
             ui.separator();
-            let mut state = COMPETITION_STATE.lock().unwrap();
+            let mut state = COMPETITION_STATE.lock_no_poison();
             match state.status {
                 CompetitionStatus::Expired | CompetitionStatus::Free => {
                     ui.horizontal(|ui| {
@@ -171,8 +175,8 @@ fn main() {
                         }
 
                         if ui.button("Swap teams").clicked() {
-                            let team_0 = &mut states[0].lock().unwrap().team;
-                            let team_1 = &mut states[1].lock().unwrap().team;
+                            let team_0 = &mut states[0].lock_no_poison().team;
+                            let team_1 = &mut states[1].lock_no_poison().team;
                             let tmp = team_0.clone();
                             *team_0 = team_1.clone();
                             *team_1 = tmp;
@@ -219,7 +223,7 @@ fn main() {
 
 fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
     while sim.viewer_running() {      
-        let mut comp_state = COMPETITION_STATE.lock().unwrap();
+        let mut comp_state = COMPETITION_STATE.lock_no_poison();
         while let Some(pending) = comp_state.pending.pop_front() {
             match pending {
                 CompetitionPending::ResetScore => sim.clear_score(),
@@ -245,7 +249,7 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
         /* Sync the simulation state with our competition state */
         let score = sim.score().clone();
         for state in &states {
-            let mut state = state.lock().unwrap();
+            let mut state = state.lock_no_poison();
             let team = state.team.clone();
             let observation = sim.delayed_observation(team.clone(), None);
             let (
