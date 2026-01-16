@@ -1,4 +1,6 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
+use fuzbai_simulator::mujoco_rs::mujoco_c;
+
 use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
 
 use tokio::runtime::Builder;
@@ -12,9 +14,23 @@ static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| M
 
 mod http;
 
+
+unsafe extern "C" fn handle_mujoco_error(c_error_message: *const std::os::raw::c_char) {
+    unsafe {
+        if let Ok(e_msg) = std::ffi::CStr::from_ptr(c_error_message).to_str() {
+            println!("ERROR! MuJoCo's C library issued an error: {e_msg} !!! Resetting simulation state and model !!!");
+        }
+    }
+
+    let mut lock = COMPETITION_STATE.lock().unwrap();
+    lock.pending.push_back(CompetitionPending::ReloadSimulation);
+    println!("Reloading simulation state due to internal MuJoCo error");
+}
+
 enum CompetitionPending {
     ResetScore,
-    ResetSimulation
+    ResetSimulation,
+    ReloadSimulation
 }
 
 #[derive(PartialEq)]
@@ -47,6 +63,10 @@ fn main() {
     let mut args = std::env::args();
     let _ = args.next().unwrap();  // program path;
 
+    // Set the MuJoCo error handler (from C language) to catch internal MuJoCo crashes
+    unsafe { mujoco_c::mju_user_error = Some(handle_mujoco_error) };
+
+    // Initialize the rest of Rust code
     let port_0 = args.next()
         .unwrap_or_else(|| "8080".into())
         .parse::<u16>().expect("passed team 1 port passed was invalid");
@@ -202,8 +222,9 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
         let mut comp_state = COMPETITION_STATE.lock().unwrap();
         while let Some(pending) = comp_state.pending.pop_front() {
             match pending {
-                CompetitionPending::ResetScore => { sim.clear_score(); },
-                CompetitionPending::ResetSimulation => { sim.reset_simulation(); }
+                CompetitionPending::ResetScore => sim.clear_score(),
+                CompetitionPending::ResetSimulation => sim.reset_simulation(),
+                CompetitionPending::ReloadSimulation => sim.reload_simulation()
             }
         }
 
