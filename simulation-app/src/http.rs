@@ -146,6 +146,7 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
                 )
         })
         .workers(1)
+        .max_connections(10)
         .bind(("127.0.0.1", port)).unwrap()
         .run()
     };
