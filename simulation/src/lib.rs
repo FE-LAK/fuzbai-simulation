@@ -1,6 +1,8 @@
 use mujoco_rs::viewer::{MjViewer, ViewerSharedState};
 use mujoco_rs::prelude::*;
-use mujoco_rs;
+
+// Re-export for possible direct manipulation.
+pub use mujoco_rs;
 
 // Re-export for convenience
 pub use mujoco_rs::viewer::egui;
@@ -229,6 +231,11 @@ impl FuzbAISimulator {
     /// Returns the current score in form `[red score, blue score]`.
     pub fn score(&self) -> &[u16; 2] {
         &self.score
+    }
+
+    /// Overrides the current score.
+    pub fn set_score(&mut self, score: [u16; 2]) {
+        self.score = score;
     }
 
     /// Returns the collision forces (relative to the red team).
@@ -848,6 +855,14 @@ impl FuzbAISimulator {
         }
         else {
             self.blue_builtin_player.set_disabled(indices);
+        }
+    }
+
+    /// Reloads the simulation state.
+    pub fn reload_simulation(&mut self) {
+        if let Some(model) = G_MJ_MODEL.get() {
+            self.mj_data = model.make_data();
+            self.mj_data.step1();
         }
     }
 

@@ -1,8 +1,13 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
+use fuzbai_simulator::mujoco_rs::mujoco_c;
+
 use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
+
+use traits::LockOrUnpoison;
 
 const NUM_TOKIO_THREADS: usize = 4;
 const COMPETITION_DURATION_SECS: u64 = 120;
@@ -10,11 +15,27 @@ const EXPIRED_BALL_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
+mod traits;
 mod http;
+
+
+unsafe extern "C" fn handle_mujoco_error(c_error_message: *const std::os::raw::c_char) {
+    unsafe {
+        if let Ok(e_msg) = std::ffi::CStr::from_ptr(c_error_message).to_str() {
+            println!("ERROR! MuJoCo's C library issued an error: {e_msg} !!! Resetting simulation state and model !!!");
+        }
+    }
+
+    let mut lock = COMPETITION_STATE.lock_no_poison();
+    lock.pending.push_back(CompetitionPending::ReloadSimulation);
+    println!("Reloading simulation state due to internal MuJoCo error");
+}
+
 
 enum CompetitionPending {
     ResetScore,
-    ResetSimulation
+    ResetSimulation,
+    ReloadSimulation
 }
 
 #[derive(PartialEq)]
@@ -47,6 +68,10 @@ fn main() {
     let mut args = std::env::args();
     let _ = args.next().unwrap();  // program path;
 
+    // Set the MuJoCo error handler (from C language) to catch internal MuJoCo crashes
+    unsafe { mujoco_c::mju_user_error = Some(handle_mujoco_error) };
+
+    // Initialize the rest of Rust code
     let port_0 = args.next()
         .unwrap_or_else(|| "8080".into())
         .parse::<u16>().expect("passed team 1 port passed was invalid");
@@ -73,15 +98,17 @@ fn main() {
     let shutdown_notify = Arc::new(Notify::new());
     let shutdown_notify_clone = shutdown_notify.clone();
 
-    let tokio_handle = std::thread::spawn(move || {
-        let runtime = Builder::new_current_thread()
-            .worker_threads(NUM_TOKIO_THREADS)
-            .enable_all()
-            .build()
-            .unwrap();
+    let tokio_handle = std::thread::Builder::new()
+        .name("tokio thread".into())
+        .spawn(move || {
+            let runtime = Builder::new_current_thread()
+                .worker_threads(NUM_TOKIO_THREADS)
+                .enable_all()
+                .build()
+                .unwrap();
 
-        runtime.block_on(http::http_task(states_clone, shutdown_notify_clone));
-    });
+            runtime.block_on(http::http_task(states_clone, shutdown_notify_clone));
+    }).unwrap();
 
     /* Initialize simulation */
     let mut sim = FuzbAISimulator::new(
@@ -100,9 +127,10 @@ fn main() {
 
     /* Start physics in another thread */
     let states_clone = states.clone();
-    let sim_thread = std::thread::spawn(move || {
-        simulation_thread(sim, states_clone);
-    });
+    let sim_thread = std::thread::Builder::new()
+        .name("simulation".into())
+        .spawn(move || simulation_thread(sim, states_clone))
+        .unwrap();
 
     /* Create the viewer */
     let viewer = ViewerProxy;
@@ -121,7 +149,7 @@ fn main() {
                 ui.label("Score");
                 ui.end_row();
                 for state in &states {
-                    let mut state = state.lock().unwrap();
+                    let mut state = state.lock_no_poison();
                     let team = &state.team;
                     let team_name = &state.team_name;
                     let port = state.port;
@@ -135,7 +163,7 @@ fn main() {
             });
 
             ui.separator();
-            let mut state = COMPETITION_STATE.lock().unwrap();
+            let mut state = COMPETITION_STATE.lock_no_poison();
             match state.status {
                 CompetitionStatus::Expired | CompetitionStatus::Free => {
                     ui.horizontal(|ui| {
@@ -151,8 +179,8 @@ fn main() {
                         }
 
                         if ui.button("Swap teams").clicked() {
-                            let team_0 = &mut states[0].lock().unwrap().team;
-                            let team_1 = &mut states[1].lock().unwrap().team;
+                            let team_0 = &mut states[0].lock_no_poison().team;
+                            let team_1 = &mut states[1].lock_no_poison().team;
                             let tmp = team_0.clone();
                             *team_0 = team_1.clone();
                             *team_1 = tmp;
@@ -199,11 +227,12 @@ fn main() {
 
 fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
     while sim.viewer_running() {      
-        let mut comp_state = COMPETITION_STATE.lock().unwrap();
+        let mut comp_state = COMPETITION_STATE.lock_no_poison();
         while let Some(pending) = comp_state.pending.pop_front() {
             match pending {
-                CompetitionPending::ResetScore => { sim.clear_score(); },
-                CompetitionPending::ResetSimulation => { sim.reset_simulation(); }
+                CompetitionPending::ResetScore => sim.clear_score(),
+                CompetitionPending::ResetSimulation => sim.reset_simulation(),
+                CompetitionPending::ReloadSimulation => sim.reload_simulation()
             }
         }
 
@@ -215,48 +244,70 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
 
         drop(comp_state);
 
-        if sim.terminated() || sim.truncated() {
-            println!("Score (Red-Blue): {:?}", sim.score());
-            sim.reset_simulation();
-        }
-        sim.step_simulation();
-
-        /* Sync the simulation state with our competition state */
-        let score = sim.score().clone();
-        for state in &states {
-            let mut state = state.lock().unwrap();
-            let team = state.team.clone();
-            let observation = sim.delayed_observation(team.clone(), None);
-            let (
-                mut ball_x, mut ball_y, ball_vx, ball_vy,
-                rod_position_calib, rod_angle
-            ) = observation;
-
-            // When the ball is not detected on the real table, the system returns -1 for the position.
-            if expired {
-                ball_x = -1.0;
-                ball_y = -1.0;
+        // Step simulation and synchronize the state.
+        // Catch any potential panics (just in case, none were detected in testing) --- we aren't  :).
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            if sim.terminated() || sim.truncated() {
+                println!("Score (Red-Blue): {:?}", sim.score());
+                sim.reset_simulation();
             }
+            sim.step_simulation();
 
-            let camera_data_0 = http::CameraData {
-                cameraID: 0,
-                ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
-                rod_position_calib, rod_angle
-            };
+            /* Sync the simulation state with our competition state */
+            let score = sim.score().clone();
+            for state in &states {
+                let mut state = state.lock_no_poison();
+                let team = state.team.clone();
+                let observation = sim.delayed_observation(team.clone(), None);
+                let (
+                    mut ball_x, mut ball_y, ball_vx, ball_vy,
+                    rod_position_calib, rod_angle
+                ) = observation;
 
-            // Assume the second camera gives the same results.
-            let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
+                // When the ball is not detected on the real table, the system returns -1 for the position.
+                if expired {
+                    ball_x = -1.0;
+                    ball_y = -1.0;
+                }
 
-            /* Update the state for the configured team */
-            state.camera_state.camData = [camera_data_0, camera_data_1];
-            state.score = score[team.clone() as usize];
-            sim.set_external_mode(team.clone(), !state.builtin);
+                let camera_data_0 = http::CameraData {
+                    cameraID: 0,
+                    ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
+                    rod_position_calib, rod_angle
+                };
 
-            let commands: Box<_> = state.pending_commands.iter().map(|c|
-                (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
-            ).collect();
+                // Assume the second camera gives the same results.
+                let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
 
-            sim.set_motor_command(&commands, team);
+                /* Update the state for the configured team */
+                state.camera_state.camData = [camera_data_0, camera_data_1];
+                state.score = score[team.clone() as usize];
+                sim.set_external_mode(team.clone(), !state.builtin);
+
+                let commands: Box<_> = state.pending_commands.iter().map(|c|
+                    (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
+                ).collect();
+
+                sim.set_motor_command(&commands, team);
+            }
+        }));
+        ////////////////////// END catch unwind
+
+        // HOT RELOAD
+        // In case the code panicked for whatever reason, the simulation must be reset without resetting the score.
+        if result.is_err() {
+            let score = *sim.score();
+            sim = FuzbAISimulator::new(
+                1, 5,
+                true,
+                0.050,
+                None,
+                VisualConfig::new(
+                    0, false,
+                    0, false
+                ),
+            );
+            sim.set_score(score);
         }
     }
 }
