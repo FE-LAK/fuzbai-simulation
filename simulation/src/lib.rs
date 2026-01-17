@@ -233,6 +233,11 @@ impl FuzbAISimulator {
         &self.score
     }
 
+    /// Overrides the current score.
+    pub fn set_score(&mut self, score: [u16; 2]) {
+        self.score = score;
+    }
+
     /// Returns the collision forces (relative to the red team).
     /// Format: (fx, fy, fz, fx + fz.max(-fx).min(0.0))
     pub fn collision_forces(&self) -> [[f64; 4]; 8] {

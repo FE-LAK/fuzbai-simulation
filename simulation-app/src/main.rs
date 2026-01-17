@@ -2,6 +2,7 @@ use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 use fuzbai_simulator::mujoco_rs::mujoco_c;
 
 use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
@@ -97,15 +98,17 @@ fn main() {
     let shutdown_notify = Arc::new(Notify::new());
     let shutdown_notify_clone = shutdown_notify.clone();
 
-    let tokio_handle = std::thread::spawn(move || {
-        let runtime = Builder::new_current_thread()
-            .worker_threads(NUM_TOKIO_THREADS)
-            .enable_all()
-            .build()
-            .unwrap();
+    let tokio_handle = std::thread::Builder::new()
+        .name("tokio thread".into())
+        .spawn(move || {
+            let runtime = Builder::new_current_thread()
+                .worker_threads(NUM_TOKIO_THREADS)
+                .enable_all()
+                .build()
+                .unwrap();
 
-        runtime.block_on(http::http_task(states_clone, shutdown_notify_clone));
-    });
+            runtime.block_on(http::http_task(states_clone, shutdown_notify_clone));
+    }).unwrap();
 
     /* Initialize simulation */
     let mut sim = FuzbAISimulator::new(
@@ -124,9 +127,10 @@ fn main() {
 
     /* Start physics in another thread */
     let states_clone = states.clone();
-    let sim_thread = std::thread::spawn(move || {
-        simulation_thread(sim, states_clone);
-    });
+    let sim_thread = std::thread::Builder::new()
+        .name("simulation".into())
+        .spawn(move || simulation_thread(sim, states_clone))
+        .unwrap();
 
     /* Create the viewer */
     let viewer = ViewerProxy;
@@ -240,48 +244,70 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
 
         drop(comp_state);
 
-        if sim.terminated() || sim.truncated() {
-            println!("Score (Red-Blue): {:?}", sim.score());
-            sim.reset_simulation();
-        }
-        sim.step_simulation();
-
-        /* Sync the simulation state with our competition state */
-        let score = sim.score().clone();
-        for state in &states {
-            let mut state = state.lock_no_poison();
-            let team = state.team.clone();
-            let observation = sim.delayed_observation(team.clone(), None);
-            let (
-                mut ball_x, mut ball_y, ball_vx, ball_vy,
-                rod_position_calib, rod_angle
-            ) = observation;
-
-            // When the ball is not detected on the real table, the system returns -1 for the position.
-            if expired {
-                ball_x = -1.0;
-                ball_y = -1.0;
+        // Step simulation and synchronize the state.
+        // Catch any potential panics (just in case, none were detected in testing) --- we aren't  :).
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            if sim.terminated() || sim.truncated() {
+                println!("Score (Red-Blue): {:?}", sim.score());
+                sim.reset_simulation();
             }
+            sim.step_simulation();
 
-            let camera_data_0 = http::CameraData {
-                cameraID: 0,
-                ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
-                rod_position_calib, rod_angle
-            };
+            /* Sync the simulation state with our competition state */
+            let score = sim.score().clone();
+            for state in &states {
+                let mut state = state.lock_no_poison();
+                let team = state.team.clone();
+                let observation = sim.delayed_observation(team.clone(), None);
+                let (
+                    mut ball_x, mut ball_y, ball_vx, ball_vy,
+                    rod_position_calib, rod_angle
+                ) = observation;
 
-            // Assume the second camera gives the same results.
-            let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
+                // When the ball is not detected on the real table, the system returns -1 for the position.
+                if expired {
+                    ball_x = -1.0;
+                    ball_y = -1.0;
+                }
 
-            /* Update the state for the configured team */
-            state.camera_state.camData = [camera_data_0, camera_data_1];
-            state.score = score[team.clone() as usize];
-            sim.set_external_mode(team.clone(), !state.builtin);
+                let camera_data_0 = http::CameraData {
+                    cameraID: 0,
+                    ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
+                    rod_position_calib, rod_angle
+                };
 
-            let commands: Box<_> = state.pending_commands.iter().map(|c|
-                (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
-            ).collect();
+                // Assume the second camera gives the same results.
+                let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
 
-            sim.set_motor_command(&commands, team);
+                /* Update the state for the configured team */
+                state.camera_state.camData = [camera_data_0, camera_data_1];
+                state.score = score[team.clone() as usize];
+                sim.set_external_mode(team.clone(), !state.builtin);
+
+                let commands: Box<_> = state.pending_commands.iter().map(|c|
+                    (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
+                ).collect();
+
+                sim.set_motor_command(&commands, team);
+            }
+        }));
+        ////////////////////// END catch unwind
+
+        // HOT RELOAD
+        // In case the code panicked for whatever reason, the simulation must be reset without resetting the score.
+        if result.is_err() {
+            let score = *sim.score();
+            sim = FuzbAISimulator::new(
+                1, 5,
+                true,
+                0.050,
+                None,
+                VisualConfig::new(
+                    0, false,
+                    0, false
+                ),
+            );
+            sim.set_score(score);
         }
     }
 }
