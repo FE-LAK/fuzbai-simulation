@@ -38,7 +38,7 @@ enum CompetitionPending {
     ReloadSimulation
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum CompetitionStatus {
     Running(Instant),
     Expired,
@@ -140,79 +140,181 @@ fn main() {
     // is a POTENTIAL DANGER REGARDING DEADLOCKS. If The server state gets locked at any other location,
     // make sure YOU DO NOT CALL ANY VIEWER METHODS unless you unlock the server state (i.e., release its Mutex).
     viewer.add_ui_callback(move |ctx, _| {  // (egui::Context, mujoco_rs::MjData [Note that the latter is locked by the passive state Mutex])
-        use fuzbai_simulator::egui;
+        use fuzbai_simulator::egui::{
+            self,
+            epaint::Vertex,
+            Color32, Mesh, FontId, RichText, Align, Direction, Layout
+        };
+
+        // Split the total remaining time into minutes and seconds.
+        // Additionally, if remaining time is zero, switch to expired state.
+        // We change to the expired state here to lower mutex contention when
+        // processing ui-related things and because placing it under any button processing
+        // code would cause the status to not change when window is minimized,
+        // as egui does not process hidden widgets.
+        let (rem_min, rem_sec, status) = {
+            let mut comp_state = COMPETITION_STATE.lock_no_poison();
+            match &comp_state.status {
+                CompetitionStatus::Running(timer) => {
+                    let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(timer.elapsed().as_secs());
+                    if total_rem_s == 0 {
+                        comp_state.status = CompetitionStatus::Expired;
+                    }
+                    (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
+                },
+                _ => (0, 0, comp_state.status.clone())
+            }
+        };
+
+        // Control panel window
         egui::Window::new("FuzbAI Competition").show(ctx, |ui| {
             ui.heading("Teams");
             egui::Grid::new("team_grid").num_columns(4).show(ui, |ui| {
                 ui.label("Port");
                 ui.label("Team");
-                ui.label("Score");
                 ui.end_row();
-                for state in &states {
-                    let mut state = state.lock_no_poison();
-                    let team = &state.team;
-                    let team_name = &state.team_name;
-                    let port = state.port;
-                    let score = state.score;
-                    ui.label(port.to_string());
-                    ui.label(format!("{team_name} ({team:?})"));
-                    ui.label(score.to_string());
-                    ui.checkbox(&mut state.builtin, "built-in");
+                for state_mutex in &states {
+
+                    // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
+                    let (team_string, port_string) = {
+                        let team_state = state_mutex.lock_no_poison();
+                        let team = &team_state.team;
+                        let team_name = &team_state.team_name;
+
+                        let port_string = team_state.port.to_string();
+                        let team_string = format!("{team_name} ({team:?})");
+                        (team_string, port_string)
+                    };
+
+                    ui.label(port_string);
+                    ui.label(team_string);
+
+                    // Read the builtin state into a new variable, as locking the twice mutex is
+                    // much faster than keeping the lock active during the entire call.
+                    let mut builtin = state_mutex.lock_no_poison().builtin;
+
+                    ui.checkbox(&mut builtin, "built-in");
+                    state_mutex.lock_no_poison().builtin = builtin;
                     ui.end_row();
                 }
             });
 
             ui.separator();
-            let mut state = COMPETITION_STATE.lock_no_poison();
-            match state.status {
+            match status {
                 CompetitionStatus::Expired | CompetitionStatus::Free => {
                     ui.horizontal(|ui| {
                         if ui.button("Start").clicked() {
-                            state.status = CompetitionStatus::Running(Instant::now());
-                            state.pending.push_back(CompetitionPending::ResetScore);
-                            state.pending.push_back(CompetitionPending::ResetSimulation);
+                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            competition_state.status = CompetitionStatus::Running(Instant::now());
+                            competition_state.pending.push_back(CompetitionPending::ResetScore);
+                            competition_state.pending.push_back(CompetitionPending::ResetSimulation);
                         }
 
                         if ui.button("Start free").clicked() {
-                            state.status = CompetitionStatus::Free;
-                            state.pending.push_back(CompetitionPending::ResetSimulation);
-                        }
-
-                        if ui.button("Swap teams").clicked() {
-                            let team_0 = &mut states[0].lock_no_poison().team;
-                            let team_1 = &mut states[1].lock_no_poison().team;
-                            let tmp = team_0.clone();
-                            *team_0 = team_1.clone();
-                            *team_1 = tmp;
+                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            competition_state.status = CompetitionStatus::Free;
+                            competition_state.pending.push_back(CompetitionPending::ResetSimulation);
                         }
 
                         if ui.button("Reset score").clicked() {
-                            state.pending.push_back(CompetitionPending::ResetScore);
+                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            competition_state.pending.push_back(CompetitionPending::ResetScore);
                         }
                     });
-
-                    if let CompetitionStatus::Expired = state.status {
-                        ui.label("Competition time expired");
-                    }
                 }
 
-                CompetitionStatus::Running(timer) => {
+                CompetitionStatus::Running(_) => {
                     ui.horizontal(|ui| {
                         if ui.button("Stop").clicked() {
-                            state.status = CompetitionStatus::Expired;
-                        }
-
-                        let rem_total_seconds = COMPETITION_DURATION_SECS - timer.elapsed().as_secs().min(COMPETITION_DURATION_SECS);
-                        let rem_minutes = rem_total_seconds / 60;
-                        let rem_seconds = rem_total_seconds % 60;
-                        ui.label(format!("Remaining: {rem_minutes:02}:{rem_seconds:02}",));
-
-                        if rem_total_seconds == 0 {
-                            state.status = CompetitionStatus::Expired;
+                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            competition_state.status = CompetitionStatus::Expired;
                         }
                     });
                 }
             }
+        });
+
+        // Top status panel
+        egui::TopBottomPanel::top("team_status").show(ctx, |ui| {
+            // Default to white
+            ui.style_mut().visuals.override_text_color = Some(Color32::WHITE);
+
+            // Paint gradient (red to blue)
+            let painter = ui.painter();
+            const LEFT_COLOR: Color32 = Color32::from_rgb(180, 60, 60);
+            const RIGHT_COLOR: Color32 = Color32::from_rgb(60, 90, 180);
+
+            let rect = ui.clip_rect();
+            let mut mesh = Mesh::default();
+            mesh.vertices.push(Vertex {
+                pos: rect.left_top(),
+                uv: Default::default(),
+                color: LEFT_COLOR,
+            });
+            mesh.vertices.push(Vertex {
+                pos: rect.right_top(),
+                uv: Default::default(),
+                color: RIGHT_COLOR,
+            });
+            mesh.vertices.push(Vertex {
+                pos: rect.right_bottom(),
+                uv: Default::default(),
+                color: RIGHT_COLOR,
+            });
+            mesh.vertices.push(Vertex {
+                pos: rect.left_bottom(),
+                uv: Default::default(),
+                color: LEFT_COLOR,
+            });
+            mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+
+            painter.add(egui::Shape::mesh(mesh));
+
+            // Three columns: red team, central state, blue team.
+            ui.set_width(300.0);
+            ui.columns(3, |uis| {
+                let [red_ui, mid_ui, blue_ui] = uis else { unreachable!() };
+                red_ui.vertical(|ui| {
+                    // Prepare before passing to egui to reduce mutex contention.
+                    let (team_name_rt, score_rt) = {
+                        let red_lock = states[0].lock_no_poison();
+                        (
+                            RichText::new(&red_lock.team_name).strong().font(FontId::proportional(30.0)),
+                            RichText::new(red_lock.score.to_string()).font(FontId::proportional(24.0))
+                        )
+                    };
+
+                    ui.label(team_name_rt);
+                    ui.label(score_rt);
+                });
+
+                mid_ui.centered_and_justified(|ui| {
+                    ui.label(
+                        RichText::new(format!("{rem_min:02}:{rem_sec:02}"))
+                            .font(FontId::proportional(30.0))
+                    );
+                });
+
+                blue_ui.with_layout(
+                    Layout::from_main_dir_and_cross_align(
+                        Direction::TopDown,
+                        Align::Max, // right side
+                    ),
+                    |ui| {
+                        // Prepare before passing to egui to reduce mutex contention.
+                        let (team_name_rt, score_rt) = {
+                            let blue_lock = states[1].lock_no_poison();
+                            (
+                                RichText::new(&blue_lock.team_name).strong().font(FontId::proportional(30.0)),
+                                RichText::new(blue_lock.score.to_string()).font(FontId::proportional(24.0))
+                            )
+                        };
+
+                        ui.label(team_name_rt);
+                        ui.label(score_rt);
+                    },
+                );
+            });
         });
     });
 
@@ -245,7 +347,7 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
         drop(comp_state);
 
         // Step simulation and synchronize the state.
-        // Catch any potential panics (just in case, none were detected in testing) --- we aren't  :).
+        // Catch any potential panics (just in case, none were detected in testing).
         let result = catch_unwind(AssertUnwindSafe(|| {
             if sim.terminated() || sim.truncated() {
                 println!("Score (Red-Blue): {:?}", sim.score());
@@ -304,7 +406,7 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
                 None,
                 VisualConfig::new(
                     0, false,
-                    0, false
+                    0, false  // viewer is already setup and bound to the model.
                 ),
             );
             sim.set_score(score);
