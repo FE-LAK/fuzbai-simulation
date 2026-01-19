@@ -332,13 +332,11 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
         let competition_expired = {
             let mut comp_state = COMPETITION_STATE.lock_no_poison();
             while let Some(pending) = comp_state.pending.pop_front() {
-                let t0 = Instant::now();
                 match pending {
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
                     CompetitionPending::ReloadSimulation => sim.reload_simulation()
                 }
-                println!("{}", t0.elapsed().as_micros());
             }
             comp_state.expired()
         };
