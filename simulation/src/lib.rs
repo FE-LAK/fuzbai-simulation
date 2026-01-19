@@ -790,7 +790,7 @@ impl FuzbAISimulator {
     pub fn local_to_global(mut position: Option<XYZType>, mut velocity: Option<XYZType>) -> (Option<XYZType>, Option<XYZType>) {
         // Transform position
         if let Some(p) = position {
-            position = Some(Self::local_to_global_position(p))
+            position = Some(Self::local_to_global_position(p));
         }
 
         // Transform velocity
