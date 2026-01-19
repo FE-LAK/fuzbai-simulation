@@ -329,22 +329,24 @@ fn main() {
 
 fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
     while sim.viewer_running() {      
-        let mut comp_state = COMPETITION_STATE.lock_no_poison();
-        while let Some(pending) = comp_state.pending.pop_front() {
-            match pending {
-                CompetitionPending::ResetScore => sim.clear_score(),
-                CompetitionPending::ResetSimulation => sim.reset_simulation(),
-                CompetitionPending::ReloadSimulation => sim.reload_simulation()
+        let competition_expired = {
+            let mut comp_state = COMPETITION_STATE.lock_no_poison();
+            while let Some(pending) = comp_state.pending.pop_front() {
+                let t0 = Instant::now();
+                match pending {
+                    CompetitionPending::ResetScore => sim.clear_score(),
+                    CompetitionPending::ResetSimulation => sim.reset_simulation(),
+                    CompetitionPending::ReloadSimulation => sim.reload_simulation()
+                }
+                println!("{}", t0.elapsed().as_micros());
             }
-        }
+            comp_state.expired()
+        };
 
-        let expired = comp_state.expired();
-        if expired  {
+        if competition_expired {
             sim.reset_simulation();
             sim.serve_ball(Some(EXPIRED_BALL_BALL_POSITION));
         }
-
-        drop(comp_state);
 
         // Step simulation and synchronize the state.
         // Catch any potential panics (just in case, none were detected in testing).
@@ -367,7 +369,7 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
                 ) = observation;
 
                 // When the ball is not detected on the real table, the system returns -1 for the position.
-                if expired {
+                if competition_expired {
                     ball_x = -1.0;
                     ball_y = -1.0;
                 }
