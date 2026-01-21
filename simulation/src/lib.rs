@@ -7,7 +7,7 @@ pub use mujoco_rs;
 // Re-export for convenience
 pub use mujoco_rs::viewer::egui;
 
-use agent_rust::Agent as BuiltInAgent;
+use demo_fuzbai_agent::Agent as BuiltInAgent;
 
 use std::sync::{Arc, OnceLock, Mutex};
 use std::{collections::VecDeque};
@@ -348,8 +348,6 @@ impl FuzbAISimulator {
     /// Sets the simulated delay (in seconds) to `simulated_delay_s`.
     pub fn set_simulated_delay(&mut self, simulated_delay_s: f64) {
         self.simulated_delay_s = simulated_delay_s;
-        self.red_builtin_player.set_delay(simulated_delay_s);
-        self.blue_builtin_player.set_delay(simulated_delay_s);
     }
 
     /// Configures the damping actuator of the ball.
@@ -725,15 +723,8 @@ impl FuzbAISimulator {
         let mj_blue_goal_geom_id = model.name_to_id(MjtObj::mjOBJ_GEOM, "right-goal-hole");
 
         // Initialize internal player teams
-        let mut red_builtin_player = BuiltInAgent::new(simulated_delay_s);
-        let mut blue_builtin_player = BuiltInAgent::new(simulated_delay_s);
-
-        // When the simulation operates in discrete time (speed-up simulation),
-        // the built-in players must do the same.
-        if !realtime {
-            red_builtin_player.to_step_mode(LOW_TIMESTEP * internal_step_factor as f64);
-            blue_builtin_player.to_step_mode(LOW_TIMESTEP * internal_step_factor as f64);
-        }
+        let red_builtin_player = BuiltInAgent::new(internal_step_factor as f64 * LOW_TIMESTEP);
+        let blue_builtin_player = BuiltInAgent::new(internal_step_factor as f64 * LOW_TIMESTEP);
 
         let mj_data_act_ball_damp_x = mj_data.actuator("ball_damp_x").unwrap();
         let mj_data_act_ball_damp_y = mj_data.actuator("ball_damp_y").unwrap();
@@ -848,16 +839,6 @@ impl FuzbAISimulator {
         pending_cmds.shrink_to_fit();
     }
 
-    /// Proxy method to the built-in player's `set_disabled` method.
-    pub fn set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: &[usize]) {
-        if let PlayerTeam::Red = team {
-            self.red_builtin_player.set_disabled(indices);
-        }
-        else {
-            self.blue_builtin_player.set_disabled(indices);
-        }
-    }
-
     /// Reloads the simulation state.
     pub fn reload_simulation(&mut self) {
         if let Some(model) = G_MJ_MODEL.get() {
@@ -903,7 +884,7 @@ impl FuzbAISimulator {
         if !self.external_team_red {
             obs = self.delayed_observation(PlayerTeam::Red, None);
             let (x, y, vx, vy, ..) = obs;
-            self.pending_motor_cmd_red = self.red_builtin_player.get_action(x, y, vx, vy);
+            self.pending_motor_cmd_red = self.red_builtin_player.get_action(x, y, vx, vy).to_vec();
         }
 
         for command in &self.pending_motor_cmd_red {
@@ -919,7 +900,7 @@ impl FuzbAISimulator {
         if !self.external_team_blue {
             obs = self.delayed_observation(PlayerTeam::Blue, None);
             let (x, y, vx, vy, ..) = obs;
-            self.pending_motor_cmd_blue = self.blue_builtin_player.get_action(x, y, vx, vy);
+            self.pending_motor_cmd_blue = self.blue_builtin_player.get_action(x, y, vx, vy).to_vec();
         }
 
         for command in &self.pending_motor_cmd_blue {
