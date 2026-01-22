@@ -888,7 +888,7 @@ impl FuzbAISimulator {
         }
 
         for command in &self.pending_motor_cmd_red {
-            act_id = RED_INDICES[command.0 - 1];
+            act_id = RED_INDICES[command.0.saturating_sub(1)];
             target_trans = (1.0 - command.1) * ROD_TRAVELS[act_id];
             target_angle = 2.0 * std::f64::consts::PI * command.2;
             self.trans_motor_ctrl.set_target(act_id, target_trans, command.3);
@@ -904,7 +904,7 @@ impl FuzbAISimulator {
         }
 
         for command in &self.pending_motor_cmd_blue {
-            act_id = BLUE_INDICES[command.0 - 1];
+            act_id = BLUE_INDICES[command.0.saturating_sub(1)];
             target_trans = command.1 * ROD_TRAVELS[act_id];
             target_angle = -2.0 * std::f64::consts::PI * command.2;
             self.trans_motor_ctrl.set_target(act_id, target_trans, command.3);

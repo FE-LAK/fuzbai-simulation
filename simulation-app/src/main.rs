@@ -114,7 +114,7 @@ fn main() {
     let mut sim = FuzbAISimulator::new(
         1, 5,
         true,
-        0.050,
+        0.055,
         None,
         VisualConfig::new(
             0, false,
