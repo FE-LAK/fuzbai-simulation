@@ -836,7 +836,6 @@ impl FuzbAISimulator {
         let pending_cmds = if let PlayerTeam::Red = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
         pending_cmds.clear();
         pending_cmds.extend_from_slice(commands);
-        pending_cmds.shrink_to_fit();
     }
 
     /// Reloads the simulation state.
@@ -884,7 +883,8 @@ impl FuzbAISimulator {
         if !self.external_team_red {
             obs = self.delayed_observation(PlayerTeam::Red, None);
             let (x, y, vx, vy, ..) = obs;
-            self.pending_motor_cmd_red = self.red_builtin_player.get_action(x, y, vx, vy).to_vec();
+            let commands = self.red_builtin_player.get_action(x, y, vx, vy);
+            self.set_motor_command(&commands, PlayerTeam::Red);
         }
 
         for command in &self.pending_motor_cmd_red {
@@ -900,7 +900,8 @@ impl FuzbAISimulator {
         if !self.external_team_blue {
             obs = self.delayed_observation(PlayerTeam::Blue, None);
             let (x, y, vx, vy, ..) = obs;
-            self.pending_motor_cmd_blue = self.blue_builtin_player.get_action(x, y, vx, vy).to_vec();
+            let commands = self.blue_builtin_player.get_action(x, y, vx, vy);
+            self.set_motor_command(&commands, PlayerTeam::Blue);
         }
 
         for command in &self.pending_motor_cmd_blue {
