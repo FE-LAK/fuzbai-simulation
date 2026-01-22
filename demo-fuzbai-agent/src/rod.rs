@@ -66,7 +66,6 @@ impl Rod {
     }
 
     /// Convert rod's extension into absolute units for all players.
-    /// If the `extension` parameter is not given, internal state is used.
     fn extension_to_ypos(&mut self) -> &[f64] {
         // Convert to absolute units.
         let extension_mm = self.extension * self.travel;
