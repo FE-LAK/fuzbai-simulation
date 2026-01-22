@@ -653,12 +653,6 @@ impl FuzbAISimulator {
     fn py_set_motor_command(&mut self, commands: Vec<MotorCommand>, team: PlayerTeam) { 
         self.set_motor_command(&commands, team);
     }
-
-    #[cfg(feature = "python-bindings")]
-    #[pyo3(name = "set_built_in_disabled_rods")]
-    fn py_set_built_in_disabled_rods(&mut self, team: PlayerTeam, indices: Vec<usize>) {
-        self.set_built_in_disabled_rods(team, &indices);
-    }
 }
 
 /// Non-Python exposed methods
