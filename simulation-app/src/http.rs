@@ -13,7 +13,7 @@ use tokio::sync::Notify;
 
 /// How many (CPU) workers to create on each server (red and blue).
 /// A single worker will contain a new single-threaded tokio runtime in
-/// which tasks will be spawn.
+/// which tasks will be spawned.
 const NUM_WORKERS_PER_SERVER: usize = 3;
 
 

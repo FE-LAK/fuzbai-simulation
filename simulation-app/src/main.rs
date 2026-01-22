@@ -400,7 +400,7 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
             sim = FuzbAISimulator::new(
                 1, 5,
                 true,
-                0.050,
+                0.055,
                 None,
                 VisualConfig::new(
                     0, false,
