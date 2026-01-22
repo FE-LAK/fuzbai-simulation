@@ -10,6 +10,13 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 
+
+/// How many (CPU) workers to create on each server (red and blue).
+/// A single worker will contain a new single-threaded tokio runtime in
+/// which tasks will be spawned.
+const NUM_WORKERS_PER_SERVER: usize = 3;
+
+
 /// Data received from a single camera.
 #[derive(Serialize, Default, Clone)]
 #[allow(non_snake_case)]
@@ -145,7 +152,7 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
                     .index_file("Render.html")
                 )
         })
-        .workers(1)
+        .workers(NUM_WORKERS_PER_SERVER)
         .max_connections(10)
         .bind(("127.0.0.1", port)).unwrap()
         .run()

@@ -9,7 +9,6 @@ use tokio::sync::Notify;
 
 use traits::LockOrUnpoison;
 
-const NUM_TOKIO_THREADS: usize = 4;
 const COMPETITION_DURATION_SECS: u64 = 120;
 const EXPIRED_BALL_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
@@ -102,7 +101,6 @@ fn main() {
         .name("tokio thread".into())
         .spawn(move || {
             let runtime = Builder::new_current_thread()
-                .worker_threads(NUM_TOKIO_THREADS)
                 .enable_all()
                 .build()
                 .unwrap();
@@ -114,7 +112,7 @@ fn main() {
     let mut sim = FuzbAISimulator::new(
         1, 5,
         true,
-        0.050,
+        0.055,
         None,
         VisualConfig::new(
             0, false,
@@ -402,7 +400,7 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
             sim = FuzbAISimulator::new(
                 1, 5,
                 true,
-                0.050,
+                0.055,
                 None,
                 VisualConfig::new(
                     0, false,
