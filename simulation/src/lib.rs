@@ -1046,13 +1046,13 @@ impl ViewerProxy {
         })
     }
 
-    pub fn add_ui_callback<F>(&self, callback: F)
+    pub fn add_ui_callback_detached<F>(&self, callback: F)
     where
-        F: FnMut(&egui::Context, &mut MjData<&MjModel>) + 'static
+        F: FnMut(&egui::Context) + 'static
     {
         G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
             if let Some(viewer) = maybe_viewer {
-                viewer.add_ui_callback(callback);
+                viewer.add_ui_callback_detached(callback);
             }
         });
     }

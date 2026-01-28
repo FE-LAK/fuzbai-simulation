@@ -2,39 +2,38 @@ use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 use fuzbai_simulator::mujoco_rs::mujoco_c;
 
 use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
-use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
-use traits::LockOrUnpoison;
+use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 
 const COMPETITION_DURATION_SECS: u64 = 120;
 const EXPIRED_BALL_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
-mod traits;
 mod http;
 
-
+#[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
+/// Turns any MuJoCo errors into Rust panics, which can be caught and handled.
 unsafe extern "C" fn handle_mujoco_error(c_error_message: *const std::os::raw::c_char) {
-    unsafe {
-        if let Ok(e_msg) = std::ffi::CStr::from_ptr(c_error_message).to_str() {
-            println!("ERROR! MuJoCo's C library issued an error: {e_msg} !!! Resetting simulation state and model !!!");
-        }
+    let error = if let Ok(e_msg) = unsafe { std::ffi::CStr::from_ptr(c_error_message).to_str() } {
+        format!("ERROR! MuJoCo's C library issued an error: {e_msg}")
     }
+    else {
+        "ERROR! MuJoCo's C library issued an error (error parsing failed).".to_string()
+    };
 
-    let mut lock = COMPETITION_STATE.lock_no_poison();
-    lock.pending.push_back(CompetitionPending::ReloadSimulation);
-    println!("Reloading simulation state due to internal MuJoCo error");
+    let mut lock = COMPETITION_STATE.lock_unpoison();
+    lock.pending.push_back(CompetitionPending::PanicError(error));
 }
 
 
 enum CompetitionPending {
     ResetScore,
     ResetSimulation,
-    ReloadSimulation
+    PanicError(String)
 }
 
 #[derive(PartialEq, Clone)]
@@ -68,6 +67,7 @@ fn main() {
     let _ = args.next().unwrap();  // program path;
 
     // Set the MuJoCo error handler (from C language) to catch internal MuJoCo crashes
+    #[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
     unsafe { mujoco_c::mju_user_error = Some(handle_mujoco_error) };
 
     // Initialize the rest of Rust code
@@ -133,11 +133,8 @@ fn main() {
     /* Create the viewer */
     let viewer = ViewerProxy;
 
-    // Add UI callbacks. Note that internally, viewer's passive state (used for synchronization)
-    // is locked (Mutex). This callbacks acquires a lock to the individual server state, which
-    // is a POTENTIAL DANGER REGARDING DEADLOCKS. If The server state gets locked at any other location,
-    // make sure YOU DO NOT CALL ANY VIEWER METHODS unless you unlock the server state (i.e., release its Mutex).
-    viewer.add_ui_callback(move |ctx, _| {  // (egui::Context, mujoco_rs::MjData [Note that the latter is locked by the passive state Mutex])
+    // Add the competition UI as MuJoCo-rs's viewer callback.
+    viewer.add_ui_callback_detached(move |ctx| {  // (egui::Context, mujoco_rs::MjData [Note that the latter is locked by the passive state Mutex])
         use fuzbai_simulator::egui::{
             self,
             epaint::Vertex,
@@ -151,7 +148,7 @@ fn main() {
         // code would cause the status to not change when window is minimized,
         // as egui does not process hidden widgets.
         let (rem_min, rem_sec, status) = {
-            let mut comp_state = COMPETITION_STATE.lock_no_poison();
+            let mut comp_state = COMPETITION_STATE.lock_unpoison();
             match &comp_state.status {
                 CompetitionStatus::Running(timer) => {
                     let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(timer.elapsed().as_secs());
@@ -175,7 +172,7 @@ fn main() {
 
                     // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
                     let (team_string, port_string) = {
-                        let team_state = state_mutex.lock_no_poison();
+                        let team_state = state_mutex.lock_unpoison();
                         let team = &team_state.team;
                         let team_name = &team_state.team_name;
 
@@ -189,10 +186,10 @@ fn main() {
 
                     // Read the builtin state into a new variable, as locking the twice mutex is
                     // much faster than keeping the lock active during the entire call.
-                    let mut builtin = state_mutex.lock_no_poison().builtin;
+                    let mut builtin = state_mutex.lock_unpoison().builtin;
 
                     ui.checkbox(&mut builtin, "built-in");
-                    state_mutex.lock_no_poison().builtin = builtin;
+                    state_mutex.lock_unpoison().builtin = builtin;
                     ui.end_row();
                 }
             });
@@ -202,20 +199,20 @@ fn main() {
                 CompetitionStatus::Expired | CompetitionStatus::Free => {
                     ui.horizontal(|ui| {
                         if ui.button("Start").clicked() {
-                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.status = CompetitionStatus::Running(Instant::now());
                             competition_state.pending.push_back(CompetitionPending::ResetScore);
                             competition_state.pending.push_back(CompetitionPending::ResetSimulation);
                         }
 
                         if ui.button("Start free").clicked() {
-                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.status = CompetitionStatus::Free;
                             competition_state.pending.push_back(CompetitionPending::ResetSimulation);
                         }
 
                         if ui.button("Reset score").clicked() {
-                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.pending.push_back(CompetitionPending::ResetScore);
                         }
                     });
@@ -224,7 +221,7 @@ fn main() {
                 CompetitionStatus::Running(_) => {
                     ui.horizontal(|ui| {
                         if ui.button("Stop").clicked() {
-                            let mut competition_state = COMPETITION_STATE.lock_no_poison();
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.status = CompetitionStatus::Expired;
                         }
                     });
@@ -275,7 +272,7 @@ fn main() {
                 red_ui.vertical(|ui| {
                     // Prepare before passing to egui to reduce mutex contention.
                     let (team_name_rt, score_rt) = {
-                        let red_lock = states[0].lock_no_poison();
+                        let red_lock = states[0].lock_unpoison();
                         (
                             RichText::new(&red_lock.team_name).strong().font(FontId::proportional(30.0)),
                             RichText::new(red_lock.score.to_string()).font(FontId::proportional(24.0))
@@ -301,7 +298,7 @@ fn main() {
                     |ui| {
                         // Prepare before passing to egui to reduce mutex contention.
                         let (team_name_rt, score_rt) = {
-                            let blue_lock = states[1].lock_no_poison();
+                            let blue_lock = states[1].lock_unpoison();
                             (
                                 RichText::new(&blue_lock.team_name).strong().font(FontId::proportional(30.0)),
                                 RichText::new(blue_lock.score.to_string()).font(FontId::proportional(24.0))
@@ -328,12 +325,12 @@ fn main() {
 fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
     while sim.viewer_running() {      
         let competition_expired = {
-            let mut comp_state = COMPETITION_STATE.lock_no_poison();
+            let mut comp_state = COMPETITION_STATE.lock_unpoison();
             while let Some(pending) = comp_state.pending.pop_front() {
                 match pending {
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
-                    CompetitionPending::ReloadSimulation => sim.reload_simulation()
+                    CompetitionPending::PanicError(message) => panic!("{}", message)
                 }
             }
             comp_state.expired()
@@ -345,69 +342,48 @@ fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerSt
         }
 
         // Step simulation and synchronize the state.
-        // Catch any potential panics (just in case, none were detected in testing).
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            if sim.terminated() || sim.truncated() {
-                println!("Score (Red-Blue): {:?}", sim.score());
-                sim.reset_simulation();
+        if sim.terminated() || sim.truncated() {
+            println!("Score (Red-Blue): {:?}", sim.score());
+            sim.reset_simulation();
+        }
+        sim.step_simulation();
+
+        /* Sync the simulation state with our competition state */
+        let score = sim.score().clone();
+        for state in &states {
+            let mut state = state.lock_unpoison();
+            let team = state.team.clone();
+            let observation = sim.delayed_observation(team.clone(), None);
+            let (
+                mut ball_x, mut ball_y, ball_vx, ball_vy,
+                rod_position_calib, rod_angle
+            ) = observation;
+
+            // When the ball is not detected on the real table, the system returns -1 for the position.
+            if competition_expired {
+                ball_x = -1.0;
+                ball_y = -1.0;
             }
-            sim.step_simulation();
 
-            /* Sync the simulation state with our competition state */
-            let score = sim.score().clone();
-            for state in &states {
-                let mut state = state.lock_no_poison();
-                let team = state.team.clone();
-                let observation = sim.delayed_observation(team.clone(), None);
-                let (
-                    mut ball_x, mut ball_y, ball_vx, ball_vy,
-                    rod_position_calib, rod_angle
-                ) = observation;
+            let camera_data_0 = http::CameraData {
+                cameraID: 0,
+                ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
+                rod_position_calib, rod_angle
+            };
 
-                // When the ball is not detected on the real table, the system returns -1 for the position.
-                if competition_expired {
-                    ball_x = -1.0;
-                    ball_y = -1.0;
-                }
+            // Assume the second camera gives the same results.
+            let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
 
-                let camera_data_0 = http::CameraData {
-                    cameraID: 0,
-                    ball_x, ball_y, ball_vx, ball_vy, ball_size: 35.0,
-                    rod_position_calib, rod_angle
-                };
+            /* Update the state for the configured team */
+            state.camera_state.camData = [camera_data_0, camera_data_1];
+            state.score = score[team.clone() as usize];
+            sim.set_external_mode(team.clone(), !state.builtin);
 
-                // Assume the second camera gives the same results.
-                let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
+            let commands: Box<_> = state.pending_commands.iter().map(|c|
+                (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
+            ).collect();
 
-                /* Update the state for the configured team */
-                state.camera_state.camData = [camera_data_0, camera_data_1];
-                state.score = score[team.clone() as usize];
-                sim.set_external_mode(team.clone(), !state.builtin);
-
-                let commands: Box<_> = state.pending_commands.iter().map(|c|
-                    (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
-                ).collect();
-
-                sim.set_motor_command(&commands, team);
-            }
-        }));
-        ////////////////////// END catch unwind
-
-        // HOT RELOAD
-        // In case the code panicked for whatever reason, the simulation must be reset without resetting the score.
-        if result.is_err() {
-            let score = *sim.score();
-            sim = FuzbAISimulator::new(
-                1, 5,
-                true,
-                0.055,
-                None,
-                VisualConfig::new(
-                    0, false,
-                    0, false  // viewer is already setup and bound to the model.
-                ),
-            );
-            sim.set_score(score);
+            sim.set_motor_command(&commands, team);
         }
     }
 }

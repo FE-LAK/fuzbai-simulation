@@ -1440,9 +1440,9 @@ dependencies = [
 
 [[package]]
 name = "mujoco-rs"
-version = "2.2.1+mj-3.3.7"
+version = "2.3.0+mj-3.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8de32332d294529ec981cd6608437e9a747c430fb61f43686620c38f700c5696"
+checksum = "cacc2510de5dc8e3a5366b626756bbcd5d060555089d03125ce8910b2977885d"
 dependencies = [
  "bitflags 2.10.0",
  "bytemuck",
