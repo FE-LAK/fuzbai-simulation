@@ -1,4 +1,5 @@
 use mujoco_rs::viewer::{MjViewer, ViewerSharedState};
+use mujoco_rs::util::LockUnpoison;
 use mujoco_rs::prelude::*;
 
 // Re-export for possible direct manipulation.
@@ -264,7 +265,7 @@ impl FuzbAISimulator {
     pub fn viewer_running(&self) -> bool {
         G_VIEWER_SHARED_STATE.get().map_or(
             false,  // if it doesn't exist, then it can't be running
-            |state| state.lock().unwrap().running()
+            |state| state.lock_unpoison().running()
         )
     }
 
@@ -469,7 +470,7 @@ impl FuzbAISimulator {
     pub fn sync_viewer(&mut self) {
         let maybe_state = G_VIEWER_SHARED_STATE.get();
         if let Some(state) = maybe_state {
-            state.lock().unwrap().sync_data(&mut self.mj_data);
+            state.lock_unpoison().sync_data(&mut self.mj_data);
         }
     }
 
@@ -530,7 +531,7 @@ impl FuzbAISimulator {
             // If realtime, sync the viewer's state with out simulation state
             if let Some(viewer_state) = G_VIEWER_SHARED_STATE.get() {
                 {
-                    let mut lock = viewer_state.lock().unwrap();
+                    let mut lock = viewer_state.lock_unpoison();
                     lock.sync_data(&mut self.mj_data);
                 }
             };
@@ -811,7 +812,7 @@ impl FuzbAISimulator {
     /// [-64, 64], representing an entire circle (360 deg) in any direction.
     pub fn show_estimates(&mut self, ball_xyz: Option<XYZType>, rod_tr: Option<&[(usize, f64, f64, u8)]>) {
         if let Some(state) = G_VIEWER_SHARED_STATE.get() {
-            let mut lock = state.lock().unwrap();
+            let mut lock = state.lock_unpoison();
             let scene = lock.user_scene_mut();
 
             if let Some(unwrapped_ball_xyz) = ball_xyz {
@@ -856,7 +857,7 @@ impl FuzbAISimulator {
 
         // Reset the viwer's scene and draw the trace.
         if let Some(state) = G_VIEWER_SHARED_STATE.get() {
-            let mut lock = state.lock().unwrap();
+            let mut lock = state.lock_unpoison();
             let scene = lock.user_scene_mut();
             scene.clear_geom();
 
@@ -1001,12 +1002,10 @@ impl ViewerProxy {
     }
 
     pub fn running(&self) -> bool {
-        if let Some(state) = G_VIEWER_SHARED_STATE.get() && state.lock().unwrap().running() {
-            true
-        }
-        else {
-            false
-        }
+        G_VIEWER_SHARED_STATE.get().map_or(
+            false,
+            |state| state.lock_unpoison().running()
+        )
     }
 
     #[cfg(feature = "python-bindings")]

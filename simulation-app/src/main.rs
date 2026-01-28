@@ -1,39 +1,40 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
-use fuzbai_simulator::mujoco_rs::mujoco_c;
+use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 
 use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
-use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
+mod http;
 
 const COMPETITION_DURATION_SECS: u64 = 120;
 const EXPIRED_BALL_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
-mod http;
+// Define global linkage for a MuJoCo error handler. This is redefined (from MuJoCo-rs's implementation)
+// to allow C-unwind, so panics can be triggered inside the handler.
+#[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
+unsafe extern "C" {
+    pub static mut mju_user_error: ::std::option::Option<unsafe extern "C-unwind" fn(arg1: *const ::std::os::raw::c_char)>;
+}
 
 #[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
 /// Turns any MuJoCo errors into Rust panics, which can be caught and handled.
-unsafe extern "C" fn handle_mujoco_error(c_error_message: *const std::os::raw::c_char) {
-    let error = if let Ok(e_msg) = unsafe { std::ffi::CStr::from_ptr(c_error_message).to_str() } {
-        format!("ERROR! MuJoCo's C library issued an error: {e_msg}")
+unsafe extern "C-unwind" fn handle_mujoco_error(c_error_message: *const std::os::raw::c_char) {
+    if let Ok(e_msg) = unsafe { std::ffi::CStr::from_ptr(c_error_message).to_str() } {
+        panic!("ERROR! MuJoCo's C library issued an error: {e_msg}");
     }
     else {
-        "ERROR! MuJoCo's C library issued an error (error parsing failed).".to_string()
+        panic!("ERROR! MuJoCo's C library issued an error (error parsing failed).");
     };
-
-    let mut lock = COMPETITION_STATE.lock_unpoison();
-    lock.pending.push_back(CompetitionPending::PanicError(error));
 }
-
 
 enum CompetitionPending {
     ResetScore,
     ResetSimulation,
-    PanicError(String)
 }
 
 #[derive(PartialEq, Clone)]
@@ -61,14 +62,14 @@ impl Default for CompetitionState {
     }
 }
 
-
 fn main() {
     let mut args = std::env::args();
     let _ = args.next().unwrap();  // program path;
 
     // Set the MuJoCo error handler (from C language) to catch internal MuJoCo crashes
+    // and convert them to panics
     #[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
-    unsafe { mujoco_c::mju_user_error = Some(handle_mujoco_error) };
+    unsafe { mju_user_error = Some(handle_mujoco_error) };
 
     // Initialize the rest of Rust code
     let port_0 = args.next()
@@ -109,25 +110,51 @@ fn main() {
     }).unwrap();
 
     /* Initialize simulation */
-    let mut sim = FuzbAISimulator::new(
-        1, 5,
-        true,
-        0.055,
-        None,
-        VisualConfig::new(
-            0, false,
-            0, true
-        ),
-    );
+    let sim_factory = |init_viewer| {
+        FuzbAISimulator::new(
+            1, 5,
+            true,
+            0.055,
+            None,
+            VisualConfig::new(
+                0, false,
+                0, init_viewer
+            ),
+        )
+    };
 
-    sim.set_external_mode(PlayerTeam::Red, true);
-    sim.set_external_mode(PlayerTeam::Blue, true);
-
-    /* Start physics in another thread */
+    /* Initialize simulation */
+    // Create the simulation with viewer enabled on the main thread (due to OS limitations).
+    // The viewer itself could be created completely independently from simulation (after creating the model),
+    // however it is more convenient if this is created by the simulation on construction, rather than
+    // separately.
+    let mut sim = sim_factory(true);
+    // Start physics in another thread
     let states_clone = states.clone();
     let sim_thread = std::thread::Builder::new()
         .name("simulation".into())
-        .spawn(move || simulation_thread(sim, states_clone))
+        .spawn(move || {
+            // Loop forever unless viewer is closed.
+            // This ensures the simulation is automatically restarted in case of a panic.
+            loop { 
+                // Catch potential panics. These should not occur if everything is done correctly,
+                // but bugs happen and we are not Cloudflare :).
+                let panic_result = catch_unwind(AssertUnwindSafe(||
+                    simulation_thread(&mut sim, states_clone.clone())
+                ));
+                match panic_result {
+                    Ok(()) => break,  // exited without a panic -> normal close
+                    Err(_) => {
+                        println!("ERROR! Physics thread panicked! Restarting");
+                    }
+                }
+
+                // Save the simulation score and recreate, without reinitializing the viewer.
+                let score = *sim.score();
+                sim = sim_factory(false);
+                sim.set_score(score);
+            }
+        })
         .unwrap();
 
     /* Create the viewer */
@@ -322,15 +349,14 @@ fn main() {
 }
 
 
-fn simulation_thread(mut sim: FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
-    while sim.viewer_running() {      
+fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
+    while sim.viewer_running() {
         let competition_expired = {
             let mut comp_state = COMPETITION_STATE.lock_unpoison();
             while let Some(pending) = comp_state.pending.pop_front() {
                 match pending {
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
-                    CompetitionPending::PanicError(message) => panic!("{}", message)
                 }
             }
             comp_state.expired()
