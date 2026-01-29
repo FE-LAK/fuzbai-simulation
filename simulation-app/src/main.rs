@@ -160,6 +160,11 @@ fn main() {
     /* Create the viewer */
     let viewer = ViewerProxy;
 
+    // Install image loaders for loading the LAK logo.
+    viewer.with_egui_context(|ctx| {
+        egui_extras::install_image_loaders(ctx);
+    });
+
     // Add the competition UI as MuJoCo-rs's viewer callback.
     viewer.add_ui_callback_detached(move |ctx| {  // (egui::Context, mujoco_rs::MjData [Note that the latter is locked by the passive state Mutex])
         use fuzbai_simulator::egui::{
@@ -257,7 +262,9 @@ fn main() {
         });
 
         // Top status panel
-        egui::TopBottomPanel::top("team_status").show(ctx, |ui| {
+        egui::TopBottomPanel::top("team_status")
+            .exact_height(100.0)
+        .show(ctx, |ui| {
             // Default to white
             ui.style_mut().visuals.override_text_color = Some(Color32::WHITE);
 
@@ -311,10 +318,21 @@ fn main() {
                 });
 
                 mid_ui.centered_and_justified(|ui| {
-                    ui.label(
-                        RichText::new(format!("{rem_min:02}:{rem_sec:02}"))
-                            .font(FontId::proportional(30.0))
-                    );
+                    if rem_min == 0 && rem_sec == 0 {
+                        egui::Frame::new()
+                            .inner_margin(10.0)
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Image::new("https://lak.fe.uni-lj.si/wp-content/uploads/2022/03/Logo_LAK.png")
+                                    
+                                );
+                            });
+                    } else {
+                        ui.label(
+                            RichText::new(format!("{rem_min:02}:{rem_sec:02}"))
+                                .font(FontId::proportional(30.0))
+                        );
+                    }
                 });
 
                 blue_ui.with_layout(

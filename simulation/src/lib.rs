@@ -1045,6 +1045,14 @@ impl ViewerProxy {
         })
     }
 
+    pub fn with_egui_context<F: FnOnce(&egui::Context)>(&self, fn_once: F) {
+        G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
+            if let Some(viewer) = maybe_viewer {
+                viewer.with_ui_egui_ctx(fn_once);
+            }
+        });
+    }
+
     pub fn add_ui_callback_detached<F>(&self, callback: F)
     where
         F: FnMut(&egui::Context) + 'static
