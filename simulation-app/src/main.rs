@@ -166,7 +166,7 @@ fn main() {
     });
 
     // Add the competition UI as MuJoCo-rs's viewer callback.
-    viewer.add_ui_callback_detached(move |ctx| {  // (egui::Context, mujoco_rs::MjData [Note that the latter is locked by the passive state Mutex])
+    viewer.add_ui_callback_detached(move |ctx| {  // (egui::Context)
         use fuzbai_simulator::egui::{
             self,
             epaint::Vertex,
@@ -322,10 +322,7 @@ fn main() {
                         egui::Frame::new()
                             .inner_margin(10.0)
                             .show(ui, |ui| {
-                                ui.add(
-                                    egui::Image::new("https://lak.fe.uni-lj.si/wp-content/uploads/2022/03/Logo_LAK.png")
-                                    
-                                );
+                                ui.add(egui::Image::new("https://lak.fe.uni-lj.si/wp-content/uploads/2022/03/Logo_LAK.png"));
                             });
                     } else {
                         ui.label(
