@@ -140,7 +140,9 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
     let factory = |state: Arc<Mutex<ServerState>>| {
             let port = state.lock_unpoison().port;
             HttpServer::new(move || {
+            let json_config = web::JsonConfig::default().limit(5000);
             App::new()
+                .app_data(json_config)
                 .app_data(web::Data::new(state.clone()))
                 .service(get_camera_state)
                 .service(send_command)
