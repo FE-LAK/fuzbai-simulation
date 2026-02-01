@@ -16,12 +16,17 @@ static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| M
 
 // Define global linkage for a MuJoCo error handler. This is redefined (from MuJoCo-rs's implementation)
 // to allow C-unwind, so panics can be triggered inside the handler.
-#[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
+
+type ErrorCallback = ::std::option::Option<unsafe extern "C-unwind" fn(arg1: *const ::std::os::raw::c_char)>;
 unsafe extern "C" {
-    pub static mut mju_user_error: ::std::option::Option<unsafe extern "C-unwind" fn(arg1: *const ::std::os::raw::c_char)>;
+    #[cfg(target_family = "unix")]
+    static mut mju_user_error: ErrorCallback;
+
+    #[cfg(target_os = "windows")]
+    #[link_name = "__imp_mju_user_error"]
+    static mut mju_user_error: *mut ErrorCallback;
 }
 
-#[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
 /// Turns any MuJoCo errors into Rust panics, which can be caught and handled.
 unsafe extern "C-unwind" fn handle_mujoco_error(c_error_message: *const std::os::raw::c_char) {
     if let Ok(e_msg) = unsafe { std::ffi::CStr::from_ptr(c_error_message).to_str() } {
@@ -68,8 +73,14 @@ fn main() {
 
     // Set the MuJoCo error handler (from C language) to catch internal MuJoCo crashes
     // and convert them to panics
-    #[cfg(unix)]  // Windows doesn't have the MuJoCo's callback symbol available???
+    #[cfg(target_family = "unix")]
     unsafe { mju_user_error = Some(handle_mujoco_error) };
+
+    // Dumb Microsoft logic: the variable is a pointer to the variable
+    #[cfg(target_os = "windows")]
+    unsafe {
+        *mju_user_error = Some(handle_mujoco_error)
+    };
 
     // Initialize the rest of Rust code
     let port_0 = args.next()
