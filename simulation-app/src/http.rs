@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use actix_files::{Files};
 use actix_web::web;
 
-use fuzbai_simulator::PlayerTeam;
+use fuzbai_simulator::{PlayerTeam, mujoco_rs::util::LockUnpoison};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
@@ -138,7 +138,7 @@ pub struct State {
 
 pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Arc<Notify>) {
     let factory = |state: Arc<Mutex<ServerState>>| {
-            let port = state.lock().unwrap().port;
+            let port = state.lock_unpoison().port;
             HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(state.clone()))
@@ -190,12 +190,12 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
 
 #[get("/Camera/State")]
 async fn get_camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
-    HttpResponse::Ok().json(&data.lock().unwrap().camera_state)
+    HttpResponse::Ok().json(&data.lock_unpoison().camera_state)
 }
 
 #[get("/Competition")]
 async fn get_competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
-    let name = &data.lock().unwrap().team_name;
+    let name = &data.lock_unpoison().team_name;
     let json: serde_json::Value = serde_json::json! {
         {
             "state": 2, "time": 0, "playerName": name,
@@ -208,7 +208,7 @@ async fn get_competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Respo
 
 #[post("/Motors/SendCommand")]
 async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
-    data.lock().unwrap().pending_commands = commands.into_inner().commands;
+    data.lock_unpoison().pending_commands = commands.into_inner().commands;
     HttpResponse::Ok()
 }
 
@@ -219,7 +219,7 @@ async fn reset_rotations() -> impl Responder {
 
 #[get("/State")]
 async fn get_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
-    let camera_state = data.lock().unwrap().camera_state.clone();
+    let camera_state = data.lock_unpoison().camera_state.clone();
     let rp = camera_state.camData[0].rod_position_calib;
     let rr = camera_state.camData[0].rod_angle;
 
