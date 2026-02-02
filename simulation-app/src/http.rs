@@ -6,6 +6,9 @@ use utoipa::{OpenApi, ToSchema};
 use actix_files::{Files};
 use actix_web::web;
 
+use actix_web::middleware::NormalizePath;
+use actix_web::middleware::TrailingSlash;
+
 use fuzbai_simulator::{PlayerTeam, mujoco_rs::util::LockUnpoison};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
@@ -64,6 +67,7 @@ impl CameraState {
 #[derive(Deserialize, Clone, ToSchema)]
 #[allow(non_snake_case)]
 pub struct MotorCommand {
+    #[schema(minimum = 1)]
     pub driveID: usize,
     pub rotationTargetPosition: f64,
     pub rotationVelocity: f64,
@@ -182,6 +186,7 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
             HttpServer::new(move || {
             let json_config = web::JsonConfig::default().limit(5000);
             App::new()
+                .wrap(NormalizePath::new(TrailingSlash::Trim))
                 .app_data(json_config)
                 .app_data(web::Data::new(state.clone()))
                 .service(get_openapi)
@@ -240,32 +245,32 @@ async fn get_openapi() -> impl Responder {
 async fn get_docs() -> impl Responder {
     let html = r#"<!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="description" content="SwaggerUI" />
-        <title>FuzbAI Simulation API Docs</title>
-        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
-    </head>
-    <body>
-        <div id="swagger-ui"></div>
-        <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js" crossorigin></script>
-        <script>
-            window.onload = () => {
-                if (!window.SwaggerUIBundle) {
-                    document.body.insertAdjacentHTML(
-                        'beforeend',
-                        '<p>Failed to load Swagger UI. Check network access to unpkg.com.</p>'
-                    );
-                    return;
-                }
-                window.ui = SwaggerUIBundle({
-                    url: '/api-doc/openapi.json',
-                    dom_id: '#swagger-ui',
-                });
-            };
-        </script>
-    </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="SwaggerUI" />
+  <title>SwaggerUI</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js" crossorigin></script>
+<script>
+    window.onload = () => {
+        if (!window.SwaggerUIBundle) {
+            document.body.insertAdjacentHTML(
+                'beforeend',
+                '<p>Failed to load Swagger UI. Check network access to unpkg.com.</p>'
+            );
+            return;
+        }
+        window.ui = SwaggerUIBundle({
+            url: '/api-doc/openapi.json',
+            dom_id: '#swagger-ui',
+        });
+    };
+</script>
+</body>
 </html>
 "#;
 
