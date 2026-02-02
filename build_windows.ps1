@@ -71,6 +71,7 @@ New-Item -ItemType Directory -Path $OUTPUT -Force | Out-Null
 # Build application
 # ----------------------------
 if ($APP -eq "y") {
+    $env:RUSTFLAGS="-C target-feature=+crt-static"
     cargo build --release -p simulation-app --locked
 
     New-Item -ItemType Directory -Path $OUTPUT_APP -Force | Out-Null
@@ -94,6 +95,7 @@ if ($APP -eq "y") {
 # ----------------------------
 if ($PYTHON -eq "y") {
     Push-Location "simulation"
+    $env:RUSTFLAGS="-C target-feature=+crt-static"
     maturin build --release --locked
     Pop-Location
 
