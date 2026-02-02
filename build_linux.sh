@@ -10,6 +10,7 @@ CLEAN_DIRS=(target/)
 # Default values
 APP="y"
 PYTHON="n"
+LICENSES="y"
 CLEAN="n"
 
 set -euo pipefail
@@ -19,6 +20,7 @@ for arg in "$@"; do
     case $arg in
         --app=*) APP="${arg#*=}" ;;
         --python=*) PYTHON="${arg#*=}" ;;
+        --licenses=*) LICENSES="${arg#*=}" ;;
         --clean) CLEAN=y ;;
         --help*) echo "\
 Helper script for building this project.
@@ -26,6 +28,7 @@ Helper script for building this project.
 Options:
     --app=y/n       build the simulation (competition) application.
     --python=y/n    build python bindings of the simulation (without competition application).
+    --licenses=y/n  generate a licenses report (in HTML form) of embedded libraries.
     --help          opens this help menu.
     --clean         deletes directories: ${CLEAN_DIRS[@]} \
 "; exit 0 ;;
@@ -72,6 +75,14 @@ if [ "$PYTHON" = "y" ]; then
     cd $CWD
     mkdir $OUTPUT_PYTHON -p
     cp ./target/wheels/* -rf $OUTPUT_PYTHON
+fi
+
+# Generate licenses
+if [ "$LICENSES" = "y" ]; then
+    # Setup cargo-about
+    cargo install cargo-about --locked
+    # Generate licenses file
+    cargo about generate about.hbs --features python-bindings -o $OUTPUT/THIRD_PARTY_NOTICES.html
 fi
 
 echo "============================="

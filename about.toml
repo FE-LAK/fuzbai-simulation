@@ -1,0 +1,50 @@
+accepted = [
+    # Very common
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+
+    # GPL family (different versions)
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+
+    # LGPL family
+    "LGPL-2.1-only",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+
+    # Mozilla Public License
+    "MPL-2.0",
+
+    # Boost & Creative Commons
+    "BSL-1.0",
+    "CC0-1.0",
+    "CC-BY-4.0",
+
+    # Open Data / Permissive
+    "Unlicense",
+    "EPL-2.0",
+
+    # Copyleft/Permissive combinations
+    "Apache-2.0 WITH LLVM-exception",
+
+    # Other
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "Zlib",
+    "OFL-1.1",
+    "Ubuntu-font-1.0"
+]
+
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]

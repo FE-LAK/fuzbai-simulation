@@ -15,6 +15,7 @@ $CLEAN_DIRS = @("target")
 # Default values
 $APP = "y"
 $PYTHON = "n"
+$LICENSES = "y"
 $CLEAN = "n"
 
 # ----------------------------
@@ -24,6 +25,7 @@ foreach ($arg in $args) {
     switch -Regex ($arg) {
         '^--app=(.+)$'     { $APP = $Matches[1] }
         '^--python=(.+)$'  { $PYTHON = $Matches[1] }
+        '^--licenses=(.+)$'  { $LICENSES = $Matches[1] }
         '^--clean$'        { $CLEAN = "y" }
         '^--help' {
             Write-Host @"
@@ -32,6 +34,7 @@ Helper script for building this project.
 Options:
     --app=y/n       build the simulation (competition) application.
     --python=y/n    build python bindings of the simulation (without competition application).
+    --licenses=y/n  generate a licenses report (in HTML form) of embeded libraries.
     --help          opens this help menu.
     --clean         deletes directories: $($CLEAN_DIRS -join ", ")
 "@
@@ -101,6 +104,16 @@ if ($PYTHON -eq "y") {
 
     New-Item -ItemType Directory -Path $OUTPUT_PYTHON -Force | Out-Null
     Copy-Item "target/wheels/*" $OUTPUT_PYTHON -Recurse -Force
+}
+
+# ----------------------------
+# Generate licenses
+# ----------------------------
+if ($LICENSES -eq "y") {
+    # Setup cargo-about
+    cargo install cargo-about --locked
+    # Generate licenses file
+    cargo about generate about.hbs --features python-bindings -o $OUTPUT/THIRD_PARTY_NOTICES.html
 }
 
 # ----------------------------

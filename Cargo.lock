@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "fuzbai_simulator"
-version = "3.8.0"
+version = "3.9.0"
 dependencies = [
  "demo-fuzbai-agent",
  "mujoco-rs",
@@ -2486,7 +2486,7 @@ checksum = "e320a6c5ad31d271ad523dcf3ad13e2767ad8b1cb8f047f75a8aeaf8da139da2"
 
 [[package]]
 name = "simulation-app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "actix-files",
  "actix-web",
