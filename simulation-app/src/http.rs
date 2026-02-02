@@ -158,24 +158,15 @@ pub struct ResetResponse {
 #[openapi(
     paths(
         get_camera_state,
-        get_competition,
         send_command,
         reset_rotations,
         get_state,
     ),
     components(
         schemas(
-            CameraData,
             CameraState,
-            MotorCommand,
             MotorCommands,
-            StateCameraStateRod,
-            StateCameraState,
-            StateDrivesStateDrivesValue,
-            StateDrivesStateDrive,
-            StateDrivesState,
             State,
-            CompetitionResponse,
             ResetResponse,
         )
     ),
@@ -197,9 +188,9 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
                 .service(get_docs)
                 .service(get_camera_state)
                 .service(send_command)
-                .service(get_competition)
                 .service(get_state)
                 .service(reset_rotations)
+                .service(get_competition)
                 .service(
                     Files::new("/", "./www/")
                     .index_file("Render.html")
@@ -286,7 +277,7 @@ async fn get_docs() -> impl Responder {
 #[utoipa::path(
     get,
     path = "/Camera/State",
-    tag = "simulation",
+    tag = "State information",
     responses(
         (status = 200, description = "Camera state", body = CameraState)
     )
@@ -297,34 +288,10 @@ async fn get_camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Resp
 }
 
 #[utoipa::path(
-    get,
-    path = "/Competition",
-    tag = "simulation",
-    responses(
-        (status = 200, description = "Competition info", body = CompetitionResponse)
-    )
-)]
-#[get("/Competition")]
-async fn get_competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
-    let name = &data.lock_unpoison().team_name;
-    let response = CompetitionResponse {
-        state: 2,
-        time: 0,
-        playerName: name.clone(),
-        scorePlayer: "".to_string(),
-        scoreFuzbAI: "".to_string(),
-        level: 0,
-        results: Vec::new(),
-    };
-
-    HttpResponse::Ok().json(response)
-}
-
-#[utoipa::path(
     post,
     path = "/Motors/SendCommand",
-    tag = "simulation",
     request_body = MotorCommands,
+    tag = "Control",
     responses(
         (status = 200, description = "Accepted")
     )
@@ -338,7 +305,7 @@ async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::J
 #[utoipa::path(
     get,
     path = "/Motors/ResetRotations",
-    tag = "simulation",
+    tag = "Control",
     responses(
         (status = 200, description = "Reset message", body = ResetResponse)
     )
@@ -351,7 +318,7 @@ async fn reset_rotations() -> impl Responder {
 #[utoipa::path(
     get,
     path = "/State",
-    tag = "simulation",
+    tag = "State information",
     responses(
         (status = 200, description = "Simulation state", body = State)
     )
@@ -390,4 +357,20 @@ async fn get_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
             ] }
         }
     )
+}
+
+#[get("/Competition")]
+async fn get_competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+    let name = &data.lock_unpoison().team_name;
+    let response = CompetitionResponse {
+        state: 2,
+        time: 0,
+        playerName: name.clone(),
+        scorePlayer: "".to_string(),
+        scoreFuzbAI: "".to_string(),
+        level: 0,
+        results: Vec::new(),
+    };
+
+    HttpResponse::Ok().json(response)
 }
