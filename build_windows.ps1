@@ -120,8 +120,12 @@ if ($DOC -eq "y") {
     New-Item -ItemType Directory -Path $OUTPUT_DOC -Force | Out-Null
     Copy-Item "target/doc/*" $OUTPUT_DOC -Recurse -Force
 
-    # Create a documentation entry file similar to the Linux script
-    Copy-Item "target/doc/fuzbai_simulator/index.html" (Join-Path $OUTPUT "DOCUMENTATION.html") -Force
+    # Create a simple Internet shortcut (`.url`) that points to the generated docs index
+    $docIndex = Join-Path $OUTPUT 'doc\fuzbai_simulator\index.html'
+    $resolved = (Resolve-Path $docIndex).Path
+    $url = 'file:///' + ($resolved -replace '\\','/')
+    $urlPath = Join-Path $OUTPUT 'DOCUMENTATION.url'
+    Set-Content -Path $urlPath -Value ("[InternetShortcut]`nURL=$url") -Encoding ASCII
 }
 
 # ----------------------------
