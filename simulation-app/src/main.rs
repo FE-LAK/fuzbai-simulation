@@ -376,6 +376,7 @@ fn main() {
 
 
 fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
+    let mut command_buffer = Vec::with_capacity(4);
     while sim.viewer_running() {
         let competition_expired = {
             let mut comp_state = COMPETITION_STATE.lock_unpoison();
@@ -431,11 +432,13 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
             state.score = score[team.clone() as usize];
             sim.set_external_mode(team.clone(), !state.builtin);
 
-            let commands: Box<_> = state.pending_commands.iter().map(|c|
+            command_buffer.clear();
+            command_buffer.extend(state.pending_commands.iter().take(4).map(|c|
                 (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
-            ).collect();
+            ));
 
-            sim.set_motor_command(&commands, team);
+            state.pending_commands.clear();
+            sim.set_motor_command(&command_buffer, team);
         }
     }
 }
