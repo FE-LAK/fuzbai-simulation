@@ -103,7 +103,7 @@ impl Rod {
         let mut new_extension = self.extension + error / self.travel;
 
         // Clip as the above loop will give the extension to be infinite if no players can be selected.
-        new_extension = new_extension.max(0.0).min(1.0);
+        new_extension = new_extension.clamp(0.0, 1.0);
 
         // State machine
 
