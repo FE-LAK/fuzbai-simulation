@@ -5,12 +5,14 @@ CWD=$(pwd)
 OUTPUT=target/BUILD_OUTPUT_HERE
 OUTPUT_APP=$OUTPUT/simulation-app
 OUTPUT_PYTHON=$OUTPUT/python
+OUTPUT_DOC=$OUTPUT/doc
 CLEAN_DIRS=(target/)
 
 # Default values
 APP="y"
 PYTHON="n"
-LICENSES="y"
+DOC="n"
+LICENSES="n"
 CLEAN="n"
 
 set -euo pipefail
@@ -20,15 +22,17 @@ for arg in "$@"; do
     case $arg in
         --app=*) APP="${arg#*=}" ;;
         --python=*) PYTHON="${arg#*=}" ;;
+        --doc=*) DOC="${arg#*=}" ;;
         --licenses=*) LICENSES="${arg#*=}" ;;
         --clean) CLEAN=y ;;
         --help*) echo "\
 Helper script for building this project.
 
 Options:
-    --app=y/n       build the simulation (competition) application.
-    --python=y/n    build python bindings of the simulation (without competition application).
-    --licenses=y/n  generate a licenses report (in HTML form) of embedded libraries.
+    --app=y/n       [default=y] build the simulation (competition) application.
+    --python=y/n    [default=n] build python bindings of the simulation (without competition application).
+    --doc=y/n       [default=n] build documentation of the simulation (including the Python bindings).
+    --licenses=y/n  [default=n] generate a licenses report (in HTML form) of embedded libraries.
     --help          opens this help menu.
     --clean         deletes directories: ${CLEAN_DIRS[@]} \
 "; exit 0 ;;
@@ -75,6 +79,15 @@ if [ "$PYTHON" = "y" ]; then
     cd $CWD
     mkdir $OUTPUT_PYTHON -p
     cp ./target/wheels/* -rf $OUTPUT_PYTHON
+fi
+
+# Build documentation
+if [ "$DOC" = "y" ]; then
+    DOCS_RS=y cargo doc -p fuzbai_simulator --no-deps --document-private-items --features python-bindings --locked
+    sync
+    mkdir $OUTPUT_DOC -p
+    cp ./target/doc/* -rf $OUTPUT_DOC
+    ln -sf doc/fuzbai_simulator/index.html $OUTPUT/DOCUMENTATION.html
 fi
 
 # Generate licenses
