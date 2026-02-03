@@ -5,3 +5,7 @@
 [workspace]
 resolver = "3"
 members = ["simulation-app", "simulation"]
+exclude = [
+    "examples/Rust/http_client",
+    "examples/Rust/http_latency_benchmark",
+]

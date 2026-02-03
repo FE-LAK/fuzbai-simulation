@@ -1,11 +1,11 @@
-//! Simple camera state reading example.
-use std::hint::black_box;
+//! HTTP latency benchmark for camera state requests.
+//! Measures round-trip time for GET requests to the `/Camera/State` endpoint
+//! and tracks smoothed latency metrics over time.
 use serde::{Serialize, Deserialize};
 use std::time::{Instant, Duration};
 
-
 /// Data received from a single camera.
-#[derive(Deserialize, Serialize, Default, Clone)]
+#[derive(Deserialize, Default, Clone)]
 #[allow(non_snake_case)]
 pub struct CameraData {
     pub cameraID: u32,
@@ -18,55 +18,38 @@ pub struct CameraData {
     pub rod_angle: [f64; 8],
 }
 
-impl CameraData {
-    pub fn new(id: u32) -> Self {
-        Self {
-            cameraID: id,
-            ..Default::default()
-        }
-    }
-}
-
-
-/// Return type for [`camera_state`].
+/// Camera state response from the HTTP API.
 /// Contains state for both cameras.
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Clone)]
 #[allow(non_snake_case)]
 pub struct CameraState {
     pub camData: [CameraData; 2],
     pub camDataOK: [bool; 2],
 }
 
-impl CameraState {
-    pub fn new() -> Self {
-        Self {
-            camData: [CameraData::new(0), CameraData::new(1)],
-            camDataOK: [true, true]
-        }
-    }    
-}
-
-
 fn main() {
     requests_thread();
 }
 
-
 fn requests_thread() {
+    // Create HTTP client with connection pooling for efficient latency testing
     let client = reqwest::blocking::Client::builder()
         .pool_idle_timeout(Duration::from_secs(90))
         .timeout(Duration::from_secs(5))
         .build().unwrap();
 
-    let mut smoothed = 0.0;
+    let mut smoothed = 0.0; // Exponential moving average of latency in microseconds
     loop {
+        // Measure round-trip time for camera state request
         let start = Instant::now();
-        let state: CameraState = 
-        client.get("http://127.0.0.1:8080/Camera/State").send().unwrap().json().unwrap();
-        black_box(&state);
+        let state: CameraState = client.get("http://127.0.0.1:8080/Camera/State")
+            .send().unwrap()
+            .json().unwrap();
         let elapsed_micros = start.elapsed().as_micros();
+
+        // Update smoothed latency with exponential moving average (k=0.0001)
         smoothed += 0.0001 * (elapsed_micros as f64 - smoothed);
         let CameraState { camData: [CameraData { ball_x, ball_y, ..}, _], .. } = state;
-        println!("x={ball_x} y={ball_y} perf={smoothed:.3}");
+        println!("x={ball_x:.3} y={ball_y:.3} perf={smoothed:.3}");
     }
 }
