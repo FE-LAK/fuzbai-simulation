@@ -10,12 +10,14 @@ $CWD = Get-Location
 $OUTPUT = "target/BUILD_OUTPUT_HERE"
 $OUTPUT_APP = Join-Path $OUTPUT "simulation-app"
 $OUTPUT_PYTHON = Join-Path $OUTPUT "python"
+$OUTPUT_DOC = Join-Path $OUTPUT "doc"
 $CLEAN_DIRS = @("target")
 
 # Default values
 $APP = "y"
 $PYTHON = "n"
-$LICENSES = "y"
+$DOC = "n"
+$LICENSES = "n"
 $CLEAN = "n"
 
 # ----------------------------
@@ -25,6 +27,7 @@ foreach ($arg in $args) {
     switch -Regex ($arg) {
         '^--app=(.+)$'     { $APP = $Matches[1] }
         '^--python=(.+)$'  { $PYTHON = $Matches[1] }
+        '^--doc=(.+)$'     { $DOC = $Matches[1] }
         '^--licenses=(.+)$'  { $LICENSES = $Matches[1] }
         '^--clean$'        { $CLEAN = "y" }
         '^--help' {
@@ -32,9 +35,10 @@ foreach ($arg in $args) {
 Helper script for building this project.
 
 Options:
-    --app=y/n       build the simulation (competition) application.
-    --python=y/n    build python bindings of the simulation (without competition application).
-    --licenses=y/n  generate a licenses report (in HTML form) of embeded libraries.
+    --app=y/n       [default=y] build the simulation (competition) application.
+    --python=y/n    [default=n] build python bindings of the simulation (without competition application).
+    --doc=y/n       [default=n] build documentation of the simulation (including the Python bindings).
+    --licenses=y/n  [default=n] generate a licenses report (in HTML form) of embeded libraries.
     --help          opens this help menu.
     --clean         deletes directories: $($CLEAN_DIRS -join ", ")
 "@
@@ -104,6 +108,20 @@ if ($PYTHON -eq "y") {
 
     New-Item -ItemType Directory -Path $OUTPUT_PYTHON -Force | Out-Null
     Copy-Item "target/wheels/*" $OUTPUT_PYTHON -Recurse -Force
+}
+
+# ----------------------------
+# Build documentation
+# ----------------------------
+if ($DOC -eq "y") {
+    $env:DOCS_RS = "y"
+    cargo doc -p fuzbai_simulator --no-deps --document-private-items --features python-bindings --locked
+
+    New-Item -ItemType Directory -Path $OUTPUT_DOC -Force | Out-Null
+    Copy-Item "target/doc/*" $OUTPUT_DOC -Recurse -Force
+
+    # Create a documentation entry file similar to the Linux script
+    Copy-Item "target/doc/fuzbai_simulator/index.html" (Join-Path $OUTPUT "DOCUMENTATION.html") -Force
 }
 
 # ----------------------------
