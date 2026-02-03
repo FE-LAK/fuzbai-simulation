@@ -37,6 +37,8 @@ def physics(simulator: fs.FuzbAISimulator):
 # Create a simulation instance.
 # Multiple of these can exist, just not with the viewer enabled.
 sim = fs.FuzbAISimulator(
+    # internal_step_factor: .step_simulation() = N * (2 ms)
+    # sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
     internal_step_factor=10, sample_steps=5,
     realtime=True,
     simulated_delay_s=0.055,

@@ -37,8 +37,8 @@ fn main() {
     // Create a simulation instance.
     // Multiple of these can exist, just not with the viewer enabled.
     let mut sim = FuzbAISimulator::new(
-        10, // internal_step_factor
-        5,  // sample_steps
+        10, // internal_step_factor: .step_simulation() = N * (2 ms)
+        5,  // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
         true, // realtime
         0.055, // simulated_delay_s
         None, // model_path
