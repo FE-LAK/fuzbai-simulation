@@ -1,8 +1,8 @@
 //! HTTP latency benchmark for camera state requests.
 //! Measures round-trip time for GET requests to the `/Camera/State` endpoint
 //! and tracks smoothed latency metrics over time.
-use serde::{Serialize, Deserialize};
-use std::time::{Instant, Duration};
+use serde::Deserialize;
+use std::time::Instant;
 
 /// Data received from a single camera.
 #[derive(Deserialize, Default, Clone)]
