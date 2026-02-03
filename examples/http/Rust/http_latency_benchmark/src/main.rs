@@ -32,12 +32,7 @@ fn main() {
 }
 
 fn requests_thread() {
-    // Create HTTP client with connection pooling for efficient latency testing
-    let client = reqwest::blocking::Client::builder()
-        .pool_idle_timeout(Duration::from_secs(90))
-        .timeout(Duration::from_secs(5))
-        .build().unwrap();
-
+    let client = reqwest::blocking::Client::builder().build().unwrap();
     let mut smoothed = 0.0; // Exponential moving average of latency in microseconds
     loop {
         // Measure round-trip time for camera state request
