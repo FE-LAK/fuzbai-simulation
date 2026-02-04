@@ -307,11 +307,16 @@ impl FuzbAISimulator {
     }
 
     /// Returns the observation of the simulation.
-    /// The observation represents real-world like state with added
-    /// noise. It includes the ball's state and the state of each rod.
+    ///
+    /// The observation represents real-world like state with added noise.
+    /// It includes the ball's state and the state of each rod.
     /// The parameter `team` controls which team's coordinate system the data should be relative to.
-    /// The returned data is in format (ball_state: (x [mm], y [mm], vx [m/s], vy [m/s]),
-    /// rod_positions: (8 * [0, 1]), rod_rotations: 8 * [-64, 64]).
+    ///
+    /// ### Format
+    /// The returned data is a tuple containing:
+    /// - **Ball state**: `(x [mm], y [mm], vx [m/s], vy [m/s])`
+    /// - **Rod positions**: `[f64; 8]` Normalized translation in range `[0.0, 1.0]` for each rod.
+    /// - **Rod rotations**: `[f64; 8]` Rotation in internal units where 64 units equals $2\pi$ radians ($[-64.0, 64.0]$).
     pub fn observation(&self, team: PlayerTeam) -> ObservationType {
         let observation = self.observation_red();
         match team {
@@ -827,6 +832,16 @@ impl FuzbAISimulator {
 
     /// Sets new motor (rod movement) commands for the specified `team`.
     /// The commands will be applied at the next call to [`step_simulation`](FuzbAISimulator::step_simulation)
+    /// Sets motor commands for a specific team.
+    ///
+    /// ### Parameters
+    /// - `commands`: A slice of [`MotorCommand`] defining targets for the rods.
+    /// - `team`: The team to which the commands apply.
+    ///
+    /// ### Note early on Action Units
+    /// - **Translation**: Normalized `[0.0, 1.0]`.
+    /// - **Rotation**: Normalized `[-1.0, 1.0]` where 1.0 is $2\pi$ radians (one full revolution).
+    /// - **Velocities**: Normalized `[0.0, 1.0]` as a multiplier of the maximum hardware velocity.
     pub fn set_motor_command(&mut self, commands: &[MotorCommand], team: PlayerTeam) {
         let pending_cmds = if let PlayerTeam::Red = team {&mut self.pending_motor_cmd_red} else {&mut self.pending_motor_cmd_blue};
         pending_cmds.clear();
