@@ -185,6 +185,9 @@ fn main() {
             Color32, Mesh, FontId, RichText, Align, Direction, Layout
         };
 
+        // LAK logo. Loaded statically into the binary at compile-time.
+        const LAK_IMAGE_SRC: egui::ImageSource<'static> = egui::include_image!("../www/lak_logo.png");
+
         // Split the total remaining time into minutes and seconds.
         // Additionally, if remaining time is zero, switch to expired state.
         // We change to the expired state here to lower mutex contention when
@@ -334,7 +337,7 @@ fn main() {
                         egui::Frame::new()
                             .inner_margin(10.0)
                             .show(ui, |ui| {
-                                ui.add(egui::Image::new("https://lak.fe.uni-lj.si/wp-content/uploads/2022/03/Logo_LAK.png"));
+                                ui.image(LAK_IMAGE_SRC);
                             });
                     } else {
                         ui.label(
