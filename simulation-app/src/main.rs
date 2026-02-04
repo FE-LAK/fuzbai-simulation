@@ -10,7 +10,7 @@ use tokio::sync::Notify;
 mod http;
 
 const COMPETITION_DURATION_SECS: u64 = 120;
-const EXPIRED_BALL_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
+const EXPIRED_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
@@ -85,10 +85,10 @@ fn main() {
     // Initialize the rest of Rust code
     let port_0 = args.next()
         .unwrap_or_else(|| "8080".into())
-        .parse::<u16>().expect("passed team 1 port passed was invalid");
+        .parse::<u16>().expect("passed team 1 port was invalid");
     let port_1 = args.next()
         .unwrap_or_else(|| "8081".into())
-        .parse::<u16>().expect("passed team 2 port passed was invalid");
+        .parse::<u16>().expect("passed team 2 port was invalid");
 
     /* Initialize states for each team */
     let states = [
@@ -392,7 +392,7 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
 
         if competition_expired {
             sim.reset_simulation();
-            sim.serve_ball(Some(EXPIRED_BALL_BALL_POSITION));
+            sim.serve_ball(Some(EXPIRED_BALL_POSITION));
         }
 
         // Step simulation and synchronize the state.

@@ -74,7 +74,8 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                 ROD_TRACE_RGBA_START[idx] + coeff * ROD_TRACE_RGBA_DIFF[idx]
             );
             Self::render_rods_estimates(
-                scene,                   // Extract the mask indicating which players to draw for the specific rod.
+                scene,
+                // Extract the mask indicating which players to draw for the specific rod.
                 state.1.into_iter().zip(state.2).enumerate().map(|(rod_i, (t, r))|
                     (rod_i, t, r, ((trace_rod_mask >> rod_i * 8) & 0xFF) as u8)
                 ),
@@ -146,8 +147,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                     Some(mat), Some(color)
                 );
 
-                // According to mujoco/src/engine/engine_vis_visualize.c, actual data id is twice the mesh id...
-                // ! Good thing that this isn't documented anywhere in the MuJoCo docs !.
+                // MuJoCo's data id is twice the mesh id (from mujoco/src/engine/engine_vis_visualize.c).
                 vgeom.dataid = ROD_MESH_UPPER_PLAYER_ID * 2;
 
                 // Same for the bottom geom of the player

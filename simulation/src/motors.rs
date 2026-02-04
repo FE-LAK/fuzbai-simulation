@@ -81,7 +81,7 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
             let vel_error = self.target_velocity[act_id] - qvel;
             let tanh_arg = (pos_error * 3.0 / self.stop_threshold).abs();
 
-            // performance tuning
+            // Performance tuning
             let scale = if tanh_arg < 3.0 {
                 f64::tanh(tanh_arg).powf(0.5)
             } else {
@@ -99,7 +99,7 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
         let diff = target - self.target_pos[act_id];
         let new_direction = diff.signum();
         self.velocity_scaler[act_id] = velocity_scaler.clamp(0.0, 1.0);
-        // We are outside the dead-zone or we are moving in the same direction
+        // We are outside the dead-band or we are moving in the same direction
         if diff.abs() > self.dead_band[act_id] || new_direction == self.direction[act_id] {
             self.target_pos[act_id] = target;
             self.direction[act_id] = new_direction;

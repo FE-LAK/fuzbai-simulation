@@ -39,8 +39,6 @@ const MJB_MODEL_DATA: &[u8] = include_bytes!("./miza.mjb");
 
 /// Global MjModel instance shared across multiple FuzbAI simulators.
 /// This has the benefit of consuming less memory (as the model is fixed).
-/// It is also required due to PyO3's aggressive checks for thread-safety and
-/// prohibition of Rust's lifetimes.
 static G_MJ_MODEL: OnceLock<MjModel> = OnceLock::new();
 thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
@@ -76,7 +74,10 @@ impl PlayerTeam {
     }
 
     fn __setstate__(&mut self, state: usize) -> PyResult<()> {
-        // SAFETY: this is save as long as it is called from Python (Pyo3 will only call on the valid enum).
+        // SAFETY: Safe because:
+        // 1. PlayerTeam is #[repr(usize)] with only two valid values (0=Red, 1=Blue).
+        // 2. PyO3 ensures __setstate__ is only called from Python with valid pickled data.
+        // 3. The transmute will only succeed with 0 or 1 (the only valid enum discriminants).
         *self = unsafe { std::mem::transmute(state) };
         Ok(())
     }
@@ -177,24 +178,17 @@ pub struct FuzbAISimulator {
     // delayed_memory: ArrayDeque<ObservationType, MAX_DELAY_BUFFER_LEN, Wrapping>,
     delayed_memory: VecDeque<ObservationType>, 
 
-    /* MuJoCo data */
-    /// Simulation state struct.
-    /// # SAFETY
-    /// DO NOT SHARE BETWEEN THREADS OR FREE THE RAW DATA.
-    /// This is not meant to be used in multiple threads and is thus .
-    /// Additionally, due to interaction with C code, special care must be taken into
-    /// account.
+    /// MuJoCo's simulation state.
     mj_data: MjData<&'static MjModel>,
 
-    /// View to the ball's joint data of mj_data.
-    /// # SAFETY
-    /// This needs to be dropped before mj_data.
+    /// Cached metadata for accessing the ball's joint data within mj_data.
+    /// Contains only indices and names, not references to mj_data.
     mj_data_joint_ball: MjJointDataInfo,
 
-    /// View to the ball's damping actuator.
-    /// # SAFETY
-    /// These need to be dropped before mj_data.
+    /// Cached metadata for accessing the ball's damping actuators within mj_data.
+    /// Contains only indices and names, not references to mj_data.
     mj_data_act_ball_damp_x: MjActuatorDataInfo,
+    /// Same as [`FuzbAISimulator::mj_data_act_ball_damp_x`], except for the y-axes.
     mj_data_act_ball_damp_y: MjActuatorDataInfo,
 
     /* Contact detection */
@@ -258,7 +252,7 @@ impl FuzbAISimulator {
         self.simulated_delay_s
     }
 
-    /// Checks if the viewier is still running.
+    /// Checks if the viewer is still running.
     /// Note that when this is false, the viewer is not yet closed.
     /// It is closed upon destroying the viewer object, which only happens
     /// when the entire program terminates.
@@ -414,7 +408,7 @@ impl FuzbAISimulator {
         }
     }
 
-    /// Servers the ball to a given `position` (given in red's coordinate system and in millimeters).
+    /// Serves the ball to a given `position` (given in red's coordinate system and in millimeters).
     /// Passing [`None`] spawns the ball at the default position: [`DEFAULT_BALL_POSITION`] (standard serving location).
     pub fn serve_ball(&mut self, position: Option<XYZType>) {
         let mut ball_view = self.mj_data_joint_ball.view_mut(&mut self.mj_data);
@@ -533,7 +527,7 @@ impl FuzbAISimulator {
 
             self.update_collisions();
 
-            // If realtime, sync the viewer's state with out simulation state
+            // If realtime, sync the viewer's state with our simulation state
             if let Some(viewer_state) = G_VIEWER_SHARED_STATE.get() {
                 {
                     let mut lock = viewer_state.lock_unpoison();
@@ -672,7 +666,7 @@ impl FuzbAISimulator {
         model_path: Option<&str>,
         visual_config: VisualConfig,
     ) -> Self {
-        assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larget than {MAX_DELAY_S}");
+        assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larger than {MAX_DELAY_S}");
         assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
 
         let model = G_MJ_MODEL.get_or_init(|| {
@@ -774,7 +768,7 @@ impl FuzbAISimulator {
         [velocity[0], -velocity[1], velocity[2]]
     }
 
-    /// Transforms local coordinates (from the read team) into Mujoco's global coordinate system.
+    /// Transforms local coordinates (from the red team) into Mujoco's global coordinate system.
     /// Method assumes that `position` is in mm, whilst the output is in m (as expected by MuJoCo).
     /// The `velocity` is in m/s and so is the output.
     #[inline]
@@ -857,7 +851,7 @@ impl FuzbAISimulator {
     }
 
     fn update_visuals(&mut self) {
-        // Store trace. This is done regardless of the viewier's existence
+        // Store trace. This is done regardless of the viewer's existence
         // to support screenshots outside an active viewer.
         if self.visual_config.trace_length > 0 {
             let xpos = &self.mj_data_joint_ball.view(&self.mj_data).qpos[..3];
@@ -870,7 +864,7 @@ impl FuzbAISimulator {
             self.visualizer.sample_trace(trace_state);
         }
 
-        // Reset the viwer's scene and draw the trace.
+        // Reset the viewer's scene and draw the trace.
         if let Some(state) = G_VIEWER_SHARED_STATE.get() {
             let mut lock = state.lock_unpoison();
             let scene = lock.user_scene_mut();
@@ -882,7 +876,7 @@ impl FuzbAISimulator {
     }
 
     /// Applies either externally set motor commands ([`FuzbAISimulator::external_team_red`] = `true`) or fetches
-    /// the commands from the build-in opponent.
+    /// the commands from the built-in opponent.
     fn apply_motor_commands(&mut self) {
         let mut obs;
         let mut act_id;
@@ -933,7 +927,7 @@ impl FuzbAISimulator {
         self.delayed_memory.push_front(obs);
     }
 
-    /// Returns the observation relative to the red's team.
+    /// Returns the observation relative to the red team.
     /// This exists for performance reasons, users should use [`observation`](FuzbAISimulator::observation) instead.
     #[inline]
     fn observation_red(&self) -> ObservationType {
