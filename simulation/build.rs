@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo::rerun-if-changed=./build.rs");  // This build script changed.
-    println!("cargo::rerun-if-changed=../models/");  // XML files or it's dependencies changed.
+    println!("cargo::rerun-if-changed=../models/");  // XML files or its dependencies changed.
 
     // Model compilation
     const MODEL_PATH: &str = "../models/miza.xml";

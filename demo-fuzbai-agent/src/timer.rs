@@ -1,8 +1,7 @@
 //! # Timers
-//! Module contains definitions of different timers
-//! used by the agent.
+//! Module containing definitions of different timers used by the agent.
 
-/// Timer based on manual stepping (e. g., for sped up simulations).
+/// Timer based on manual stepping (e.g., for sped up simulations).
 pub struct ManualTimer {
     timestep: f64,
     n_steps: usize

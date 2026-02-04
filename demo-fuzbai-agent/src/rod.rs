@@ -1,6 +1,5 @@
 //! # Player rods
-//! Module used for player rods that get
-//! used by the agent.
+//! Module used for player rods used by the agent.
 use crate::timer::*;
 
 /* Other parameters */
