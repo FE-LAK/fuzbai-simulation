@@ -1,6 +1,22 @@
 # fuzbai-simulation
 MuJoCo simulation environment of table football - specifically, the FuzbAI table.
 
+## Git LFS setup
+This repository uses [Git LFS](https://git-lfs.com/) for large assets. 
+
+If you see small placeholder files **after cloning**, make sure you have `git-lfs` installed on your system. 
+The first time you use Git LFS on a new machine, you must run:
+
+```shell
+git lfs install
+```
+
+Then, to download the actual file contents, run:
+
+```shell
+git lfs pull
+```
+
 # Packages
 This repository contains multiple packages:
 - **[Simulation Library](simulation/README.md)**: The core Rust library providing the MuJoCo-based physics engine and Python bindings.
