@@ -61,7 +61,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                     |idx| BALL_TRACE_RGBA_START[idx] + coeff * BALL_TRACE_RGBA_DIFF[idx]
                 );
 
-                // Position and orient the capsule in such way that it
+                // Position and orient the capsule in such a way that it
                 // connects the previous and current ball position
                 scene.create_geom(
                     MjtGeom::mjGEOM_CAPSULE, None, None,
@@ -137,7 +137,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
 
                 // Rotation will affect the geom relative to its MuJoCo geom coordinate system, however
                 // we want to rotate around the actual rod. We offset the geom away from the rod exactly
-                // ``ROD_ESTIMATE_FRAME_UPPER_OFFSET`` in the rotated direction.
+                // `ROD_ESTIMATE_FRAME_UPPER_OFFSET` in the rotated direction.
                 offset_xyz = [0.0; 3];
                 mju_mul_mat_vec_3(&mut offset_xyz, &mat, &[0.0, 0.0, ROD_ESTIMATE_FRAME_UPPER_OFFSET]);
                 pos_trans = std::array::from_fn(|i| pos_trans[i] + offset_xyz[i]);

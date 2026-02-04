@@ -70,10 +70,10 @@ impl Rod {
         // Convert to absolute units.
         let extension_mm = self.extension * self.travel;
 
-        // Calculate position of other players based on position of the first
-        let eo = extension_mm + self.offset;  // Position of first the player
+        // Calculate position of other players based on position of the first player
+        let eo = extension_mm + self.offset;  // Position of the first player
 
-        // Update the buffer inplace, without allocations.
+        // Update the buffer in-place, without allocations.
         for (player_i, ypos) in self.yposes.iter_mut().enumerate() {
             *ypos = self.spacing * player_i as f64 + eo;
         }

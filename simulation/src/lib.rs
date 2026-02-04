@@ -188,7 +188,7 @@ pub struct FuzbAISimulator {
     /// Cached metadata for accessing the ball's damping actuators within mj_data.
     /// Contains only indices and names, not references to mj_data.
     mj_data_act_ball_damp_x: MjActuatorDataInfo,
-    /// Same as [`FuzbAISimulator::mj_data_act_ball_damp_x`], except for the y-axes.
+    /// Same as [`FuzbAISimulator::mj_data_act_ball_damp_x`], except for the y-axis.
     mj_data_act_ball_damp_y: MjActuatorDataInfo,
 
     /* Contact detection */
