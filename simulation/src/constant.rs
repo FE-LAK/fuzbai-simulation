@@ -14,7 +14,7 @@ pub(crate) const MAX_DELAY_BUFFER_LEN: usize = (MAX_DELAY_S / LOW_TIMESTEP + 1.0
 /// Z-coordinate of the main table field, in global coordinates.
 /// This can be used for local->global coordinate system transformations.
 pub const Z_FIELD: f64 = 0.174 + 0.0175;
-/// Upper Z-level below which the simulation is consider truncated (invalid state).
+/// Upper Z-level below which the simulation is considered truncated (invalid state).
 pub const TERMINATION_Z_LEVEL: f64 = -0.5;
 
 /// MuJoCo geom IDs in the format (min_idx, max_idx).
@@ -34,7 +34,8 @@ pub(crate) const ROD_POSITIONS: [XYZType; 8] = [
 ];
 
 // Some player constants
-pub const ROD_TRAVELS: [f64; 8] = [0.190, 0.356, 0.180, 0.116, 0.116, 0.180, 0.356, 0.190];  /// Travel (in meters) of each rod.
+/// Travel (in meters) of each rod.
+pub const ROD_TRAVELS: [f64; 8] = [0.190, 0.356, 0.180, 0.116, 0.116, 0.180, 0.356, 0.190];
 pub(crate) const ROD_FIRST_OFFSET: [f64; 8] = [0.258, 0.055, 0.055, 0.055, 0.055, 0.055, 0.055, 0.258];
 pub(crate) const ROD_SPACING: [f64; 8] = [0.0, 0.238, 0.208, 0.118, 0.118, 0.208, 0.238, 0.0];
 pub(crate) const ROD_N_PLAYERS: [usize; 8] = [1, 2, 3, 5, 5, 3, 2, 1];
@@ -44,16 +45,16 @@ pub(crate) const ROD_MESH_UPPER_PLAYER_ID: i32 = 8;
 /// Represents the mesh ID of the player's lower body.
 pub(crate) const ROD_MESH_LOWER_PLAYER_ID: i32 = 9;
 
-// The mesh is in a different coordinate system, than the one MuJoCo creates for the geom.
+// The mesh is in a different coordinate system than the one MuJoCo creates for the geom.
 // Visualizing estimates requires giving the rotation matrix for rotation measured inside the MuJoCo's
-// geom system, while the actual position must match the meshes original system.
+// geom system, while the actual position must match the mesh's original system.
 pub(crate) const ROD_ESTIMATE_FRAME_UPPER_OFFSET: f64 = -0.033778597213357395;
 pub(crate) const ROD_ESTIMATE_FRAME_LOWER_OFFSET: f64 = -0.06625961001214105;
 
 /// The color of rod estimates.
 pub(crate) const DEFAULT_ROD_ESTIMATE_RGBA: RGBAType = [0.0, 1.0, 0.0, 1.0];
 /// The local frame of the bottom part of the player isn't aligned with the
-/// global frame, but is needs to be rotated 90 degrees. This represents a rotational matrix
+/// global frame, but it needs to be rotated 90 degrees. This represents a rotational matrix
 /// for rotation 90 degrees around X axis.
 pub(crate) const ROD_BOTTOM_PRE_ROTATION_MAT: [f64; 9] = [1.0, 0.0,  0.0,
                                                0.0, 0.0, -1.0,
@@ -117,7 +118,7 @@ pub(crate) const GEOM_TO_ROD_MAPPING: [isize; ROD_COLLISION_PLAYER_IDS[ROD_COLLI
 
 /// Indices of array data that extract the red team's information.
 pub const RED_INDICES: [usize; 4] = [0, 1, 3, 5];
-/// Indices of array data that extract the red blue's information.
+/// Indices of array data that extract the blue team's information.
 pub const BLUE_INDICES: [usize; 4] = [7, 6, 4, 2];
                                      
 
@@ -141,7 +142,7 @@ pub(crate) const ROD_TRACE_RGBA_DIFF: [f32; 4] = [
     ROD_TRACE_RGBA_END[2] - ROD_TRACE_RGBA_START[2], ROD_TRACE_RGBA_END[3] - ROD_TRACE_RGBA_START[3]
 ];
 
-/// Maximum t race length in units of high-level ([`LOW_TIMESTEP`] * [`FuzbAISimulator::internal_step_factor`]) steps.
+/// Maximum trace length in units of high-level ([`LOW_TIMESTEP`] * [`FuzbAISimulator::internal_step_factor`]) steps.
 pub const MAX_TRACE_BUFFER_LEN: usize = (10.0 / 0.020) as usize;  // 10 seconds / 20 ms
 
 /// Maximum number of user geoms inside viewer's scene.
