@@ -123,7 +123,8 @@ fn main() {
     /* Initialize simulation */
     let sim_factory = |init_viewer| {
         FuzbAISimulator::new(
-            1, 5,
+            1, // internal_step_factor: .step_simulation() = N * (2 ms)
+            5, // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
             true,
             0.055,
             None,

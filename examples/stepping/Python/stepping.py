@@ -9,10 +9,10 @@ def physics(simulator: fs.FuzbAISimulator):
         # Terminated: goal scored or ball outside the field.
         # Truncated: ball stopped moving.
         if simulator.terminated() or simulator.truncated():
-            simulator.reset_simulation()  # Reset physics state.
+            simulator.reset_simulation()
 
         # Query delayed observation (actual measurement).
-        # (ball_x, ball_y, ball_vx, ball_vy, rod_positions, rod_rotations)
+        # (ball_x [mm], ball_y [mm], ball_vx [m/s], ball_vy [m/s], rod_positions [0, 1], rod_rotations [-64, 64])
         obs = simulator.delayed_observation(
             fs.PlayerTeam.Red,  # Team
             None  # Delay override. When None is passed,
@@ -30,13 +30,15 @@ def physics(simulator: fs.FuzbAISimulator):
             # (rod_id, extension [0-1], rotation [-64, 64], mask)
             #       The mask is an 8 bit mask, where each bit corresponds to a figure on the rod.
             #       Enable individual bits to enable display for individual figure.
-            [(0, obs[4][0], obs[5][0], 0xFF)]
+            [(0, obs[4][0], obs[5][0], 0b1)]
         )
 
 
 # Create a simulation instance.
 # Multiple of these can exist, just not with the viewer enabled.
 sim = fs.FuzbAISimulator(
+    # internal_step_factor: .step_simulation() = N * (2 ms)
+    # sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
     internal_step_factor=10, sample_steps=5,
     realtime=True,
     simulated_delay_s=0.055,

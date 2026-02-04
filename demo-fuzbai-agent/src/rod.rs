@@ -87,10 +87,11 @@ impl Rod {
 impl Rod {
     /// Perform a single step in time based on the latest state (parameters).
     pub fn get_action(&mut self, ball_x: f64, ball_y: f64, ball_vx: f64, ball_vy: f64) -> (usize, f64, f64, f64, f64) {
-
-        /* Calculate the needed rod extension needed to intercept the ball at the predicted position. */
+        // Calculate the needed rod extension.
         let mut error = 0.0;
         let mut min_abs = f64::INFINITY;
+        // Find the minimum required change in extension.
+        // Use the distance from the player closest to the ball.
         for &ypos in self.extension_to_ypos() {
             let error_player = ball_y - ypos;
             let abs_error = error_player.abs();

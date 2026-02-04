@@ -5,3 +5,4 @@
 [workspace]
 resolver = "3"
 members = ["simulation-app", "simulation"]
+exclude = ["examples"]
