@@ -21,7 +21,6 @@ A Dockerfile is prepared for reproducible (and manylinux-compatible) builds:
   which enables static linking. Note that the setup files consider dynamic linking.
 
 # Build setup
-*Below setup is also described in [here](https://mujoco-rs.readthedocs.io/en/v2.2.x/installation.html#dynamic-linking-official-mujoco-build) under "Manual download"*.
 
 ## Linux
 
@@ -52,6 +51,8 @@ Note that the simulation application already does that.
 Alternatively, copy ``mujoco-3.3.7/lib/*.so`` to e.g., ``/usr/local/lib/``
 on each PC where this will be used.
 
+The [Rust toolchain](https://rust-lang.org/tools/install/) must be installed to compile on Linux, as well as standard C build tools.
+
 ## Windows
 In powershell, execute
 ```shell
@@ -64,10 +65,12 @@ Then, setup the environmental variables
 .\setup_windows.ps1
 ```
 
+The [Rust toolchain](https://rust-lang.org/tools/install/) must be installed to compile on Windows,
+as well as [Microsoft's C++ build tools](https://learn.microsoft.com/en-us/windows/dev-environment/rust/setup).
+The "Desktop development with C++" option should be sufficient.
 
 # Building
-
-Both of the below cases can be handled via the build script:
+## Automatic (script)
 
 - Linux:
   ```shell
@@ -78,18 +81,17 @@ Both of the below cases can be handled via the build script:
   ```shell
   .\build_windows.ps1 --help
   ```
+## Manual
 
+### Simulation application (HTTP)
+Standard interface: `cargo build --release -p simulation-app`.
 
-## Rust
-Standard interface (``cargo build --release``).
-
-Make sure to copy mujoco-3.3.7/lib/*.so files next to the
+Make sure to copy MuJoCo's shared libraries (DLL/.so) next to the
 output binaries or to somewhere where the system can find them
 (i.e., the "path") when redistributing.
 
-## Python
+### Python bindings (simulation-only)
 Packaging is done with maturin.
-Only the simulation library can be compiled to Python bindings:
 
 ```shell
 cd simulation/
@@ -97,11 +99,17 @@ maturin build --release
 ```
 Maturin can be installed with ``pip install -r requirements_py.txt``.
 
-or
-```shell
-# Linux
-./build_linux.sh --app=n --python=y
+Building must also be done on Windows or on a Linux system that is old enough to be
+compatible with the `manylinux_2_35` requirement (glibc 2.35).
+This is done for redistribution purposes.
 
-# Windows
-.\build_windows.ps1 --app=n --python=y
-```
+Ubuntu 22.04 matches the `manylinux_2_35` requirement, however older systems
+should work as well. A [Dockerfile](./Dockerfile.minimal) is available,
+which provides Ubuntu 22.04 and required tools for compilation.
+
+The bindings will work on Windows and any Linux distribution
+newer (or equal to in age) than Ubuntu 22.04.
+Python 3.8 or newer is required to use the compiled bindings.
+
+#### Installation
+Python bindings can be install with pip: `pip install fuzbai_simulator-...-.whl`.
