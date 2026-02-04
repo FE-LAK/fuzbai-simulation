@@ -2,13 +2,13 @@
 MuJoCo simulation environment of table football - specifically, the FuzbAI table.
 
 # Packages
-This repository contains multiple possible target packages:
-- the simulation library (under ``simulation/``);
-- the simulation application (under ``simulation-app/``);
-- other unrelated packages.
+This repository contains multiple packages:
+- **[Simulation Library](simulation/README.md)**: The core Rust library providing the MuJoCo-based physics engine and Python bindings.
+- **[Simulation Application](simulation-app/README.md)**: The competition runner that provides an HTTP API and a web-based dashboard for participants.
+- **[Demo FuzbAI Agent](demo-fuzbai-agent/)**: A reference agent implementation for controlling the rods.
+- **[Examples](examples/)**: Sample implementations in Rust and Python for both direct library stepping and HTTP-based control.
 
-
------ 
+-----
 
 **Skip everything below unless you're building yourself.**
 
