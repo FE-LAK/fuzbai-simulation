@@ -138,7 +138,7 @@
             <geom name="left-goal-hole" type="box" size="0.035 0.1025 0.025" pos="0.072 0.376 -0.149" solref="0.004 1"/>
 
             <!-- Goal levo-precka -->
-            <geom type="box" size="0.039 0.105 0.025875" pos="0.076 0.376 0.11925"/>
+            <geom type="box" size="0.039 0.105 0.025875" pos="0.076 0.376 0.11925" solref="0.02 0.25"/>
 
             <!-- Goal desno-spodaj -->
             <geom type="box" size="0.0535 0.13675 0.087" pos="1.3835 0.13675 -0.087" solref="0.004 1"/>
@@ -157,7 +157,7 @@
             <geom name="right-goal-hole" type="box" size="0.035 0.1025 0.025" pos="1.365 0.376 -0.149" solref="0.004 1"/>
 
             <!-- Goal desno-precka -->
-            <geom type="box" size="0.039 0.105 0.025875" pos="1.361 0.376 0.11925"/>
+            <geom type="box" size="0.039 0.105 0.025875" pos="1.361 0.376 0.11925" solref="0.02 0.25"/>
 
             <!-- Stena spodaj -->
             <geom type="box" size="0.7185 0.0125 0.0855" pos="0.7185 0.0125 0.0855" friction="0 0 0" solref="0.02 0.25"/>
