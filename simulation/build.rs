@@ -11,13 +11,20 @@ fn main() {
     const MODEL_PATH: &str = "../models/miza.xml";
     const OUTPUT_PATH: &str = "./src/miza.mjb";
 
-    // The compiler is part of the MuJoCo's sample programs in official MuJoCo builds.
-    let _ = std::fs::remove_file(OUTPUT_PATH);
-    std::process::Command::new("../mujoco-3.3.7/bin/compile")
-        .arg(MODEL_PATH)
-        .arg(OUTPUT_PATH)
-        .output()
-        .expect("failed to compile MuJoCo model from XML to MJB.");
+    #[cfg(not(target_os = "macos"))]
+    {
+        // The compiler is part of the MuJoCo's sample programs in official MuJoCo builds.
+        let _ = std::fs::remove_file(OUTPUT_PATH);
+        std::process::Command::new("../mujoco-3.3.7/bin/compile")
+            .arg(MODEL_PATH)
+            .arg(OUTPUT_PATH)
+            .output()
+            .expect("failed to compile MuJoCo model from XML to MJB.");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        println!("cargo:warning=Skipping MuJoCo model compilation on macOS (manual compilation required).");
+    }
 
     // Copy the MuJoCo DLL for proper embedding in the Python wheel.
     #[cfg(windows)]
