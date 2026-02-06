@@ -123,10 +123,10 @@ if [ "$APP" = "y" ]; then
             cargo build --release -p simulation-app --target "$target" --locked
         done
     fi
-    
+
     sync
     mkdir -p $OUTPUT_APP
-    
+
     # Determine the binary location(s)
     if [ ${#TARGETS[@]} -eq 0 ]; then
         # Native build
@@ -142,7 +142,7 @@ if [ "$APP" = "y" ]; then
             "./target/x86_64-apple-darwin/release/simulation-app" \
             -output "$OUTPUT_APP/simulation-app"
     fi
-    
+
     cp -rf simulation-app/www/ $OUTPUT_APP
 
     if [ -e mujoco-3.3.7/lib/libmujoco.dylib ]; then
@@ -170,11 +170,40 @@ fi
 # Build Python bindings
 if [ "$PYTHON" = "y" ]; then
     cd simulation/
-    maturin build --release --locked
+
+    # Build for specified architecture(s)
+    if [ ${#TARGETS[@]} -eq 0 ]; then
+        # Native build
+        maturin build --release --locked
+    elif [ ${#TARGETS[@]} -eq 1 ]; then
+        # Single target build
+        case "${TARGETS[0]}" in
+            aarch64-apple-darwin)
+                maturin build --release --locked --target aarch64-apple-darwin
+                ;;
+            x86_64-apple-darwin)
+                maturin build --release --locked --target x86_64-apple-darwin
+                ;;
+        esac
+    else
+        # Universal binary - build both architectures (PyPI standard: separate wheels per arch)
+        rustup target add aarch64-apple-darwin 2>/dev/null || true
+        maturin build --release --locked --target aarch64-apple-darwin
+        maturin build --release --locked --target x86_64-apple-darwin
+    fi
+
     sync
     cd "$CWD"
     mkdir -p $OUTPUT_PYTHON
     cp -rf ./target/wheels/* $OUTPUT_PYTHON
+
+    # Fix dylib references in .so files to use @loader_path for portability
+    for so_file in "$OUTPUT_PYTHON"/**/fuzbai_simulator.abi3.so; do
+        if [ -f "$so_file" ]; then
+            # Change hardcoded libmujoco.dylib to relative path via @loader_path
+            install_name_tool -change libmujoco.dylib @loader_path/../../../../../mujoco-3.3.7/lib/libmujoco.dylib "$so_file" 2>/dev/null || true
+        fi
+    done
 fi
 
 # Build documentation

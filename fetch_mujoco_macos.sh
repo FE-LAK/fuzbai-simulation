@@ -22,75 +22,29 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Mount DMG to a deterministic temporary location
+# Mount DMG
 echo "Mounting $DMG..."
 mkdir -p "$MOUNT_POINT"
 hdiutil attach "$DMG" -mountpoint "$MOUNT_POINT" -nobrowse
 
-# Prepare directory structure (matching Linux layout expected by mujoco-rs)
-mkdir -p "$DEST/lib"
-mkdir -p "$DEST/include/mujoco"
+FRAMEWORK="$MOUNT_POINT/mujoco.framework"
+DYLIB_NAME="libmujoco.$VERSION.dylib"
 
-# --- Find the framework inside the DMG ---
-echo "Looking for MuJoCo framework..."
-FRAMEWORK=""
-for candidate in \
-    "$MOUNT_POINT/mujoco.framework" \
-    "$MOUNT_POINT/MuJoCo.framework"; do
-    if [ -d "$candidate" ]; then
-        FRAMEWORK="$candidate"
-        break
-    fi
-done
-
-# Fallback: search for any .framework
-if [ -z "$FRAMEWORK" ]; then
-    FRAMEWORK=$(find "$MOUNT_POINT" -maxdepth 2 -name "*.framework" -type d 2>/dev/null | head -1)
-fi
-
-if [ -z "$FRAMEWORK" ]; then
-    echo "Error: Could not find a MuJoCo framework in DMG. Contents:"
-    ls -laR "$MOUNT_POINT"
+if [ ! -d "$FRAMEWORK" ]; then
+    echo "Error: Could not find $FRAMEWORK in DMG."
     exit 1
 fi
-FRAMEWORK_NAME=$(basename "$FRAMEWORK")
-echo "Found framework: $FRAMEWORK"
 
-# --- Copy the entire framework into lib/ (as documented by mujoco-rs) ---
-echo "Copying framework to $DEST/lib/$FRAMEWORK_NAME ..."
+# Copy the framework into lib/ (required by mujoco-rs)
+mkdir -p "$DEST/lib"
 cp -R "$FRAMEWORK" "$DEST/lib/"
 
-# --- Find the actual (non-symlink) versioned dylib inside the copied framework ---
-DYLIB=$(find "$DEST/lib/$FRAMEWORK_NAME" -name "libmujoco*.dylib" ! -type l 2>/dev/null | head -1)
-if [ -z "$DYLIB" ]; then
-    echo "Error: Could not find libmujoco dylib inside framework. Contents:"
-    find "$DEST/lib/$FRAMEWORK_NAME" -type f
-    exit 1
-fi
-DYLIB_BASENAME=$(basename "$DYLIB")
-echo "Found dylib: $DYLIB ($DYLIB_BASENAME)"
-
-# --- Fix the dylib's install_name ---
-# The framework dylib has an install_name like
-#   @rpath/mujoco.framework/Versions/A/libmujoco.X.Y.Z.dylib
-# which causes "library not found" errors at runtime because that path
-# does not exist outside the framework bundle.  Change it to a simple
-# leaf name so that DYLD_LIBRARY_PATH / @rpath resolution works.
-echo "Fixing dylib install_name..."
+# Fix the dylib's install_name so DYLD_LIBRARY_PATH / @rpath resolution works
+DYLIB="$DEST/lib/mujoco.framework/Versions/A/$DYLIB_NAME"
 chmod u+w "$DYLIB"
 install_name_tool -id libmujoco.dylib "$DYLIB"
-echo "  New install_name:"
-otool -D "$DYLIB"
 
-# --- Create the symlink expected by mujoco-rs in lib/ ---
-# mujoco-rs looks for "libmujoco.dylib" in MUJOCO_DYNAMIC_LINK_DIR.
-RELATIVE_DYLIB="$FRAMEWORK_NAME/Versions/Current/$DYLIB_BASENAME"
-(cd "$DEST/lib" && ln -sf "$RELATIVE_DYLIB" libmujoco.dylib)
-echo "Created symlink: $DEST/lib/libmujoco.dylib -> $RELATIVE_DYLIB"
+# Create the symlink expected by mujoco-rs in lib/
+(cd "$DEST/lib" && ln -sf "mujoco.framework/Versions/Current/$DYLIB_NAME" libmujoco.dylib)
 
-echo ""
-echo "Done. MuJoCo $VERSION for macOS extracted to $DEST/"
-echo ""
-echo "Verify:"
-ls -la "$DEST/lib/libmujoco.dylib"
-otool -D "$DEST/lib/libmujoco.dylib"
+echo "Done. MuJoCo $VERSION for macOS extracted to $DEST/lib/"

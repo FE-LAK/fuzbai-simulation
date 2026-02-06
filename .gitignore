@@ -233,6 +233,10 @@ MUJOCO_LOG.TXT
 # Other downloads
 *.tar.gz
 *.zip
+*.dmg
 
 # Offline Cargo
 vendor/
+
+# MacOS stuff
+.DS_Store
