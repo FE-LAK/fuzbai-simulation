@@ -56,6 +56,24 @@ fi
 # Set MuJoCo variables
 source setup_macos.sh
 
+# Function to uncomment the glutin patch in Cargo.toml
+uncomment_patch() {
+    sed -i '' 's/^# \[patch\.crates-io\]/[patch.crates-io]/' Cargo.toml
+    sed -i '' 's/^# glutin = /glutin = /' Cargo.toml
+}
+
+# Function to re-comment the glutin patch in Cargo.toml
+recomment_patch() {
+    sed -i '' 's/^\[patch\.crates-io\]/# [patch.crates-io]/' Cargo.toml
+    sed -i '' 's/^glutin = /# glutin = /' Cargo.toml
+}
+
+# Ensure patch is re-commented on exit (even if build fails)
+trap recomment_patch EXIT
+
+# Uncomment the patch for macOS build
+uncomment_patch
+
 # Determine target triples based on architecture argument
 case $ARCH in
     native)
@@ -131,14 +149,19 @@ if [ "$APP" = "y" ]; then
         # Copy the dylib (resolves the symlink so we get the real file)
         cp -L mujoco-3.3.7/lib/libmujoco.dylib $OUTPUT_APP/libmujoco.dylib
 
-        # Patch the binary so it can find libmujoco.dylib next to itself
-        install_name_tool -add_rpath @executable_path $OUTPUT_APP/simulation-app 2>/dev/null || true
+        # Find and change any mujoco library references to use @rpath
+        while IFS= read -r line; do
+            if [[ "$line" == *"mujoco"* ]] && [[ "$line" != *"@rpath"* ]]; then
+                # Extract the library path (first whitespace-separated field)
+                OLD_REF=$(echo "$line" | awk '{print $1}')
+                if [ -n "$OLD_REF" ]; then
+                    install_name_tool -change "$OLD_REF" @rpath/libmujoco.dylib "$OUTPUT_APP/simulation-app"
+                fi
+            fi
+        done < <(otool -L "$OUTPUT_APP/simulation-app" | tail -n +2)
 
-        # Also patch any residual framework-style references in the binary
-        OLD_REF=$(otool -L $OUTPUT_APP/simulation-app | grep -i "mujoco" | awk '{print $1}' | head -1)
-        if [ -n "$OLD_REF" ] && [ "$OLD_REF" != "libmujoco.dylib" ] && [ "$OLD_REF" != "@rpath/libmujoco.dylib" ]; then
-            install_name_tool -change "$OLD_REF" @rpath/libmujoco.dylib $OUTPUT_APP/simulation-app 2>/dev/null || true
-        fi
+        # Add the rpath so dylib is found next to the executable
+        install_name_tool -add_rpath @executable_path "$OUTPUT_APP/simulation-app"
     else
         echo "Warning: libmujoco.dylib not found in mujoco-3.3.7/lib/"
     fi

@@ -8,5 +8,5 @@ members = ["simulation-app", "simulation"]
 exclude = ["examples"]
 
 # A hack for MacOS (the fix code is not yet merged). Do not enable on Linux or Windows.
-[patch.crates-io]
-glutin = {git = "https://github.com/kalzoo/glutin.git", rev = "0aab9ae61981dae86ea897fc53001f345f656ada"}
+# [patch.crates-io]
+# glutin = {git = "https://github.com/kalzoo/glutin.git", rev = "0aab9ae61981dae86ea897fc53001f345f656ada"}
