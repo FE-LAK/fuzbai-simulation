@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Utility script to compile a MuJoCo XML model to MJB format.
 This is needed on macOS where the compile binary is not included in the DMG.

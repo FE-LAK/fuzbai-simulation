@@ -14,6 +14,7 @@ fn main() {
     const MODEL_PATH: &str = "../models/miza.xml";
     const OUTPUT_PATH: &str = "./src/miza.mjb";
 
+    let _ = std::fs::remove_file(OUTPUT_PATH);
     compile_model(MODEL_PATH, OUTPUT_PATH);
 
     // Copy the MuJoCo DLL for proper embedding in the Python wheel.
@@ -60,10 +61,6 @@ fn try_compile_with_python(model_path: &str, output_path: &str) -> bool {
 }
 
 fn try_compile_with_binary(model_path: &str, output_path: &str, binary_path: &str) -> bool {
-    if !Path::new(binary_path).exists() {
-        return false;
-    }
-
     match Command::new(binary_path)
         .arg(model_path)
         .arg(output_path)
