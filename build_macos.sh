@@ -14,6 +14,7 @@ PYTHON="n"
 DOC="n"
 LICENSES="n"
 CLEAN="n"
+ARCH="universal"  # Options: native, arm64, x86_64, universal
 
 set -euo pipefail
 
@@ -24,17 +25,19 @@ for arg in "$@"; do
         --python=*) PYTHON="${arg#*=}" ;;
         --doc=*) DOC="${arg#*=}" ;;
         --licenses=*) LICENSES="${arg#*=}" ;;
+        --arch=*) ARCH="${arg#*=}" ;;
         --clean) CLEAN=y ;;
         --help*) echo "\
 Helper script for building this project (macOS).
 
 Options:
-    --app=y/n       [default=y] build the simulation (competition) application.
-    --python=y/n    [default=n] build python bindings of the simulation (without competition application).
-    --doc=y/n       [default=n] build documentation of the simulation (including the Python bindings).
-    --licenses=y/n  [default=n] generate a licenses report (in HTML form) of embedded libraries.
-    --help          opens this help menu.
-    --clean         deletes directories: ${CLEAN_DIRS[@]} \
+    --app=y/n           [default=y] build the simulation (competition) application.
+    --python=y/n        [default=n] build python bindings of the simulation (without competition application).
+    --doc=y/n           [default=n] build documentation of the simulation (including the Python bindings).
+    --licenses=y/n      [default=n] generate a licenses report (in HTML form) of embedded libraries.
+    --arch=native/arm64/x86_64/universal [default=universal] target architecture (native=current machine, universal=arm64+x86_64).
+    --help              opens this help menu.
+    --clean             deletes directories: ${CLEAN_DIRS[@]} \
 "; exit 0 ;;
         *) echo "Unknown option: $arg"; exit 1 ;;
     esac
@@ -53,15 +56,75 @@ fi
 # Set MuJoCo variables
 source setup_macos.sh
 
+# Determine target triples based on architecture argument
+case $ARCH in
+    native)
+        TARGETS=()
+        echo "Building for native architecture..."
+        ;;
+    arm64)
+        TARGETS=("aarch64-apple-darwin")
+        echo "Building for arm64 (Apple Silicon)..."
+        ;;
+    x86_64)
+        TARGETS=("x86_64-apple-darwin")
+        echo "Building for x86_64 (Intel)..."
+        ;;
+    universal)
+        TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin")
+        echo "Building universal binary (arm64 + x86_64)..."
+        ;;
+    *)
+        echo "Unknown architecture: $ARCH"
+        exit 1
+        ;;
+esac
+
+# Install targets if needed
+if [ ${#TARGETS[@]} -gt 0 ]; then
+    for target in "${TARGETS[@]}"; do
+        rustup target add "$target" 2>/dev/null || true
+    done
+fi
+
 # Create output
 mkdir -p $OUTPUT
 
 # Build application
 if [ "$APP" = "y" ]; then
-    cargo build --release -p simulation-app --locked
+    # Build for specified architecture(s)
+    if [ ${#TARGETS[@]} -eq 0 ]; then
+        # Native build
+        cargo build --release -p simulation-app --locked
+    elif [ ${#TARGETS[@]} -eq 1 ]; then
+        # Single target
+        cargo build --release -p simulation-app --target "${TARGETS[0]}" --locked
+    else
+        # Universal binary - build both, then lipo
+        for target in "${TARGETS[@]}"; do
+            cargo build --release -p simulation-app --target "$target" --locked
+        done
+    fi
+    
     sync
     mkdir -p $OUTPUT_APP
-    cp ./target/release/simulation-app $OUTPUT_APP
+    
+    # Determine the binary location(s)
+    if [ ${#TARGETS[@]} -eq 0 ]; then
+        # Native build
+        cp ./target/release/simulation-app $OUTPUT_APP
+    elif [ ${#TARGETS[@]} -eq 1 ]; then
+        # Single target build
+        cp "./target/${TARGETS[0]}/release/simulation-app" $OUTPUT_APP
+    else
+        # Universal binary - combine with lipo
+        echo "Creating universal binary..."
+        lipo -create \
+            "./target/aarch64-apple-darwin/release/simulation-app" \
+            "./target/x86_64-apple-darwin/release/simulation-app" \
+            -output "$OUTPUT_APP/simulation-app"
+    fi
+    
     cp -rf simulation-app/www/ $OUTPUT_APP
 
     if [ -e mujoco-3.3.7/lib/libmujoco.dylib ]; then

@@ -1,0 +1,20 @@
+[build]
+# Set target directory
+target-dir = "target"
+
+# macOS deployment target configuration for maximum compatibility
+# Supports macOS 11.0 (Big Sur) and later on both arm64 and x86_64
+rustflags = [
+    "-C", "link-arg=-mmacosx-version-min=11.0",
+]
+
+# Per-target settings for consistent deployment target
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-C", "link-arg=-mmacosx-version-min=11.0",
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-C", "link-arg=-mmacosx-version-min=11.0",
+]
