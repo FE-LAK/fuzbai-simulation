@@ -40,30 +40,12 @@ fn compile_model(model_path: &str, output_path: &str) {
     );
 }
 
-#[cfg(target_os = "macos")]
-fn try_compile_with_python(_model_path: &str, _output_path: &str) -> bool {
-    // Try using the Python compilation script (requires venv activation)
-    match Command::new("python")
+fn try_compile_with_python(model_path: &str, output_path: &str) -> bool {
+    let python_exe = std::env::var("PYTHON_EXE").unwrap_or_else(|_| "python3".to_string());
+    match Command::new(&python_exe)
         .arg("compile_model.py")
-        .output() {
-        Ok(output) if output.status.success() => {
-            println!("Compiled MuJoCo model with Python script");
-            true
-        }
-        Ok(output) => {
-            eprintln!("Warning: Python compilation failed: {}", String::from_utf8_lossy(&output.stderr));
-            false
-        }
-        Err(_) => false,
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn try_compile_with_python(_model_path: &str, _output_path: &str) -> bool {
-    // Try using the Python compilation script (requires venv activation)
-    match Command::new("python3")
-        .arg("compile_model.py")
-        .current_dir("..")
+        .arg(model_path)
+        .arg(output_path)
         .output() {
         Ok(output) if output.status.success() => {
             println!("Compiled MuJoCo model with Python script");

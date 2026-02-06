@@ -2,6 +2,8 @@
 """
 Utility script to compile a MuJoCo XML model to MJB format.
 This is needed on macOS where the compile binary is not included in the DMG.
+
+This can also be used as a fallback on other systems.
 """
 
 import sys
@@ -13,8 +15,8 @@ def compile_model_via_mujoco():
         import pathlib
         import mujoco
 
-        xml_path = pathlib.Path("models/miza.xml")
-        mjb_path = pathlib.Path("simulation/src/miza.mjb")
+        xml_path = pathlib.Path(sys.argv[1])
+        mjb_path = pathlib.Path(sys.argv[2])
 
         if not xml_path.exists():
             print(f"Error: {xml_path} not found", file=sys.stderr)
@@ -35,15 +37,5 @@ def compile_model_via_mujoco():
         print(f"Error compiling model: {e}", file=sys.stderr)
         return False
 
-def main():   
-    # Try Python package first (easiest)
-    if compile_model_via_mujoco():
-        return 0
-
-    print("\nError: Could not compile MuJoCo model.", file=sys.stderr)
-    print("Please ensure one of the following is available:", file=sys.stderr)
-    print("  1. Python mujoco package (pip install mujoco~=3.3.7)", file=sys.stderr)
-    return 1
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(int(not compile_model_via_mujoco()))
