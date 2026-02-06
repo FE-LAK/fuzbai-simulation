@@ -58,17 +58,23 @@ mkdir -p $OUTPUT
 
 # Build application
 if [ "$APP" = "y" ]; then
-    cargo build --release --bin simulation-app --locked
+    cargo build --release -p simulation-app --locked
     sync
     mkdir -p $OUTPUT_APP
     cp ./target/release/simulation-app $OUTPUT_APP
     cp -rf simulation-app/www/ $OUTPUT_APP
 
     if [ -e mujoco-3.3.7/lib/libmujoco.dylib ]; then
-        cp mujoco-3.3.7/lib/libmujoco.dylib $OUTPUT_APP
-        # Copy versioned dylib if it exists, for safety
-        if [ -e mujoco-3.3.7/lib/libmujoco.3.3.7.dylib ]; then
-            cp mujoco-3.3.7/lib/libmujoco.3.3.7.dylib $OUTPUT_APP
+        # Copy the dylib (resolves the symlink so we get the real file)
+        cp -L mujoco-3.3.7/lib/libmujoco.dylib $OUTPUT_APP/libmujoco.dylib
+
+        # Patch the binary so it can find libmujoco.dylib next to itself
+        install_name_tool -add_rpath @executable_path $OUTPUT_APP/simulation-app 2>/dev/null || true
+
+        # Also patch any residual framework-style references in the binary
+        OLD_REF=$(otool -L $OUTPUT_APP/simulation-app | grep -i "mujoco" | awk '{print $1}' | head -1)
+        if [ -n "$OLD_REF" ] && [ "$OLD_REF" != "libmujoco.dylib" ] && [ "$OLD_REF" != "@rpath/libmujoco.dylib" ]; then
+            install_name_tool -change "$OLD_REF" @rpath/libmujoco.dylib $OUTPUT_APP/simulation-app 2>/dev/null || true
         fi
     else
         echo "Warning: libmujoco.dylib not found in mujoco-3.3.7/lib/"
@@ -80,9 +86,9 @@ if [ "$PYTHON" = "y" ]; then
     cd simulation/
     maturin build --release --locked
     sync
-    cd $CWD
+    cd "$CWD"
     mkdir -p $OUTPUT_PYTHON
-    cp ./target/wheels/* -rf $OUTPUT_PYTHON
+    cp -rf ./target/wheels/* $OUTPUT_PYTHON
 fi
 
 # Build documentation
@@ -90,7 +96,7 @@ if [ "$DOC" = "y" ]; then
     DOCS_RS=y cargo doc -p fuzbai_simulator --no-deps --document-private-items --features python-bindings --locked
     sync
     mkdir -p $OUTPUT_DOC
-    cp ./target/doc/* -rf $OUTPUT_DOC
+    cp -rf ./target/doc/* $OUTPUT_DOC
     ln -sf doc/fuzbai_simulator/index.html $OUTPUT/DOCUMENTATION.html
 fi
 

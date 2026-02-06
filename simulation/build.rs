@@ -23,7 +23,16 @@ fn main() {
     }
     #[cfg(target_os = "macos")]
     {
-        println!("cargo:warning=Skipping MuJoCo model compilation on macOS (manual compilation required).");
+        // The macOS DMG does not ship the `compile` sample binary.
+        // If the pre-compiled MJB already exists (e.g. committed or built on Linux), use it.
+        if !std::path::Path::new(OUTPUT_PATH).exists() {
+            panic!(
+                "MuJoCo model compilation is not available on macOS \
+                (the `compile` binary is not included in the DMG release). \
+                Please build '{OUTPUT_PATH}' on Linux/Windows first, or copy an \
+                existing one into place."
+            );
+        }
     }
 
     // Copy the MuJoCo DLL for proper embedding in the Python wheel.
