@@ -2,7 +2,6 @@
 //! This is used for easier embedding inside the binary.
 use std::process::Command;
 use std::path::Path;
-use std::fs;
 
 #[cfg(windows)]
 use std::path::PathBuf;
@@ -15,7 +14,6 @@ fn main() {
     const MODEL_PATH: &str = "../models/miza.xml";
     const OUTPUT_PATH: &str = "./src/miza.mjb";
 
-    // Try to compile the model 
     compile_model(MODEL_PATH, OUTPUT_PATH);
 
     // Copy the MuJoCo DLL for proper embedding in the Python wheel.
@@ -24,23 +22,66 @@ fn main() {
     copy_mujoco()
 }
 
-fn compile_model(model_path: &str, output_path: &str) {   
+fn compile_model(model_path: &str, output_path: &str) {
+    // Fall back to binary method for Linux and Windows
     if try_compile_with_binary(model_path, output_path, "../mujoco-3.3.7/bin/compile") {
         return;
     }
 
+    // Try Python as fallback for all platforms
+    if try_compile_with_python(model_path, output_path) {
+        return;
+    }
+
     panic!(
-        "Failed to compile MuJoCo model. Please ensure:\n\
-        1. MuJoCo is properly installed at ../mujoco-3.3.7/\n\
-        2. Or the 'compile' binary is available in PATH"
+        "Failed to compile MuJoCo model. Please ensure one of:\n\
+        1. MuJoCo is installled available Python: pip install mujoco~=3.3.7\n\
+        2. MuJoCo is properly installed at ../mujoco-3.3.7/"
     );
+}
+
+#[cfg(target_os = "macos")]
+fn try_compile_with_python(_model_path: &str, _output_path: &str) -> bool {
+    // Try using the Python compilation script (requires venv activation)
+    match Command::new("python")
+        .arg("compile_model.py")
+        .output() {
+        Ok(output) if output.status.success() => {
+            println!("Compiled MuJoCo model with Python script");
+            true
+        }
+        Ok(output) => {
+            eprintln!("Warning: Python compilation failed: {}", String::from_utf8_lossy(&output.stderr));
+            false
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn try_compile_with_python(_model_path: &str, _output_path: &str) -> bool {
+    // Try using the Python compilation script (requires venv activation)
+    match Command::new("python3")
+        .arg("compile_model.py")
+        .current_dir("..")
+        .output() {
+        Ok(output) if output.status.success() => {
+            println!("Compiled MuJoCo model with Python script");
+            true
+        }
+        Ok(output) => {
+            eprintln!("Warning: Python compilation failed: {}", String::from_utf8_lossy(&output.stderr));
+            false
+        }
+        Err(_) => false,
+    }
 }
 
 fn try_compile_with_binary(model_path: &str, output_path: &str, binary_path: &str) -> bool {
     if !Path::new(binary_path).exists() {
         return false;
     }
-    
+
     match Command::new(binary_path)
         .arg(model_path)
         .arg(output_path)
@@ -57,7 +98,7 @@ fn try_compile_with_binary(model_path: &str, output_path: &str, binary_path: &st
     }
 }
 
-#[windows]
+#[cfg(windows)]
 #[cfg(feature = "python-bindings")]
 fn copy_mujoco() {
     // These are a dependency of MuJoCo-rs, thus one of them must exist
