@@ -177,12 +177,6 @@ fi
 if [ "$PYTHON" = "y" ]; then
     cd simulation/
 
-    # Ensure macOS mujoco dylib is bundled into the Python package when available
-    if [ -e ../mujoco-3.3.7/lib/libmujoco.dylib ]; then
-        echo "Bundling macOS mujoco dylib into Python package..."
-        cp -L ../mujoco-3.3.7/lib/libmujoco.dylib fuzbai_simulator/libmujoco.dylib
-    fi
-
     # Build for specified architecture(s)
     if [ ${#TARGETS[@]} -eq 0 ]; then
         # Native build
