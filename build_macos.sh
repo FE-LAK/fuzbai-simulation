@@ -177,6 +177,12 @@ fi
 if [ "$PYTHON" = "y" ]; then
     cd simulation/
 
+    # Ensure macOS mujoco dylib is bundled into the Python package when available
+    if [ -e ../mujoco-3.3.7/lib/libmujoco.dylib ]; then
+        echo "Bundling macOS mujoco dylib into Python package..."
+        cp -L ../mujoco-3.3.7/lib/libmujoco.dylib fuzbai_simulator/libmujoco.dylib
+    fi
+
     # Build for specified architecture(s)
     if [ ${#TARGETS[@]} -eq 0 ]; then
         # Native build
@@ -203,13 +209,23 @@ if [ "$PYTHON" = "y" ]; then
     mkdir -p $OUTPUT_PYTHON
     cp -rf ./target/wheels/* $OUTPUT_PYTHON
 
-    # Fix dylib references in .so files to use @loader_path for portability
-    for so_file in "$OUTPUT_PYTHON"/**/fuzbai_simulator.abi3.so; do
-        if [ -f "$so_file" ]; then
-            # Change hardcoded libmujoco.dylib to relative path via @loader_path
-            install_name_tool -change libmujoco.dylib @loader_path/../../../../../mujoco-3.3.7/lib/libmujoco.dylib "$so_file" 2>/dev/null || true
-        fi
-    done
+    # Use delocate to bundle native macOS libs and fix install names (if available)
+    if command -v delocate-wheel >/dev/null 2>&1; then
+        echo "Running delocate-wheel to repair macOS wheels..."
+        for wheel in "$OUTPUT_PYTHON"/*.whl; do
+            [ -f "$wheel" ] || continue
+            tmpout=$(mktemp -d)
+            # delocate-wheel writes repaired wheel(s) to the target directory
+            if delocate-wheel -w "$tmpout" "$wheel"; then
+                mv "$tmpout"/*.whl "$wheel"
+            else
+                echo "Warning: delocate-wheel failed for $wheel" >&2
+            fi
+            rm -rf "$tmpout"
+        done
+    else
+        echo "Warning: 'delocate-wheel' not found in build environment. Install 'delocate' to make macOS wheels self-contained." >&2
+    fi
 fi
 
 # Build documentation
