@@ -204,22 +204,18 @@ if [ "$PYTHON" = "y" ]; then
     cp -rf ./target/wheels/* $OUTPUT_PYTHON
 
     # Use delocate to bundle native macOS libs and fix install names (if available)
-    if command -v delocate-wheel >/dev/null 2>&1; then
-        echo "Running delocate-wheel to repair macOS wheels..."
-        for wheel in "$OUTPUT_PYTHON"/*.whl; do
-            [ -f "$wheel" ] || continue
-            tmpout=$(mktemp -d)
-            # delocate-wheel writes repaired wheel(s) to the target directory
-            if delocate-wheel -w "$tmpout" "$wheel"; then
-                mv "$tmpout"/*.whl "$wheel"
-            else
-                echo "Warning: delocate-wheel failed for $wheel" >&2
-            fi
-            rm -rf "$tmpout"
-        done
-    else
-        echo "Warning: 'delocate-wheel' not found in build environment. Install 'delocate' to make macOS wheels self-contained." >&2
-    fi
+    echo "Running delocate-wheel to repair macOS wheels..."
+    for wheel in "$OUTPUT_PYTHON"/*.whl; do
+        [ -f "$wheel" ] || continue
+        tmpout=$(mktemp -d)
+        # delocate-wheel writes repaired wheel(s) to the target directory
+        if delocate-wheel -w "$tmpout" "$wheel"; then
+            mv "$tmpout"/*.whl "$wheel"
+        else
+            echo "Warning: delocate-wheel failed for $wheel" >&2
+        fi
+        rm -rf "$tmpout"
+    done
 fi
 
 # Build documentation
