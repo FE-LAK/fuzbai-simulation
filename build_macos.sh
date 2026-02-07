@@ -1,240 +1,174 @@
 #!/bin/bash
-# Builds the simulation-app/ competition application (macOS version).
-# Prepare variables
-CWD=$(pwd)
-OUTPUT=target/BUILD_OUTPUT_HERE
-OUTPUT_APP=$OUTPUT/simulation-app
-OUTPUT_PYTHON=$OUTPUT/python
-OUTPUT_DOC=$OUTPUT/doc
-CLEAN_DIRS=(target/)
+set -euo pipefail
 
-# Default values
+# --- Configuration ---
 APP="y"
 PYTHON="n"
 DOC="n"
 LICENSES="n"
 CLEAN="n"
-ARCH="universal"  # Options: native, arm64, x86_64, universal
+ARCH="universal"
+CWD="$(pwd)"
+OUTPUT="$CWD/target/BUILD_OUTPUT_HERE"
 
-set -euo pipefail
+# --- MuJoCo Setup ---
+source setup_macos.sh
 
-# Parse CLI arguments
+# --- Argument Parsing ---
 for arg in "$@"; do
     case $arg in
-        --app=*) APP="${arg#*=}" ;;
-        --python=*) PYTHON="${arg#*=}" ;;
-        --doc=*) DOC="${arg#*=}" ;;
+        --app=*)     APP="${arg#*=}" ;;
+        --python=*)  PYTHON="${arg#*=}" ;;
+        --doc=*)     DOC="${arg#*=}" ;;
         --licenses=*) LICENSES="${arg#*=}" ;;
-        --arch=*) ARCH="${arg#*=}" ;;
-        --clean) CLEAN=y ;;
-        --help*) echo "\
-Helper script for building this project (macOS).
-
-Options:
-    --app=y/n           [default=y] build the simulation (competition) application.
-    --python=y/n        [default=n] build python bindings of the simulation (without competition application).
-    --doc=y/n           [default=n] build documentation of the simulation (including the Python bindings).
-    --licenses=y/n      [default=n] generate a licenses report (in HTML form) of embedded libraries.
-    --arch=native/arm64/x86_64/universal [default=universal] target architecture (native=current machine, universal=arm64+x86_64).
-    --help              opens this help menu.
-    --clean             deletes directories: ${CLEAN_DIRS[@]} \
-"; exit 0 ;;
-        *) echo "Unknown option: $arg"; exit 1 ;;
+        --arch=*)    ARCH="${arg#*=}" ;;
+        --clean)     CLEAN="y" ;;
+        --help)
+            echo "Usage: ./build_macos.sh [--app=y/n] [--python=y/n] [--doc=y/n] [--licenses=y/n] [--arch=native/arm64/x86_64/universal] [--clean]"
+            exit 0 ;;
+        *) echo "Unknown: $arg"; exit 1 ;;
     esac
 done
 
-
 if [ "$CLEAN" = "y" ]; then
-    for dir in "${CLEAN_DIRS[@]}"; do
-        echo "Deleting $dir"
-        rm -rf "$dir"
-    done
+    echo "Cleaning..."
+    rm -rf target/
     exit 0
 fi
 
-
-# Set MuJoCo variables
-source setup_macos.sh
-
-# Function to uncomment the glutin patch in Cargo.toml
-uncomment_patch() {
-    sed -i '' 's/^# \[patch\.crates-io\]/[patch.crates-io]/' Cargo.toml
-    sed -i '' 's/^# glutin = /glutin = /' Cargo.toml
-}
-
-# Function to re-comment the glutin patch in Cargo.toml
-recomment_patch() {
-    sed -i '' 's/^\[patch\.crates-io\]/# [patch.crates-io]/' Cargo.toml
-    sed -i '' 's/^glutin = /# glutin = /' Cargo.toml
-    # Revert glutin to the published crates.io version
-    cargo update -p glutin
-}
-
-# Ensure patch is re-commented on exit (even if build fails)
-trap recomment_patch EXIT
-
-# Uncomment the patch for macOS build
-uncomment_patch
-
-# Update glutin to the patched version
-echo "Updating glutin to patched version..."
-cargo update -p glutin
-
-# Determine target triples based on architecture argument
-case $ARCH in
-    native)
-        TARGETS=()
-        echo "Building for native architecture..."
-        ;;
-    arm64)
-        TARGETS=("aarch64-apple-darwin")
-        echo "Building for arm64 (Apple Silicon)..."
-        ;;
-    x86_64)
-        TARGETS=("x86_64-apple-darwin")
-        echo "Building for x86_64 (Intel)..."
-        ;;
-    universal)
-        TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin")
-        echo "Building universal binary (arm64 + x86_64)..."
-        ;;
-    *)
-        echo "Unknown architecture: $ARCH"
-        exit 1
-        ;;
-esac
-
-# Install targets if needed
-if [ ${#TARGETS[@]} -gt 0 ]; then
-    for target in "${TARGETS[@]}"; do
-        rustup target add "$target" 2>/dev/null || true
-    done
+if [ ! -d "$MUJOCO_DYNAMIC_LINK_DIR" ]; then
+    echo "Error: MuJoCo not found at $MUJOCO_DYNAMIC_LINK_DIR. Run fetch_mujoco_macos.sh first."
+    exit 1
 fi
 
-# Create output
-mkdir -p $OUTPUT
-
-# Build application
-if [ "$APP" = "y" ]; then
-    # Build for specified architecture(s)
-    if [ ${#TARGETS[@]} -eq 0 ]; then
-        # Native build
-        cargo build --release -p simulation-app --locked
-    elif [ ${#TARGETS[@]} -eq 1 ]; then
-        # Single target
-        cargo build --release -p simulation-app --target "${TARGETS[0]}" --locked
+# --- Helper Functions ---
+toggle_patch() {
+    # $1: "enable" or "disable"
+    if [ "$1" = "enable" ]; then
+        sed -i '' 's/^# \[patch\.crates-io\]/[patch.crates-io]/' Cargo.toml
+        sed -i '' 's/^# glutin = /glutin = /' Cargo.toml
+        cargo update -p glutin -q
     else
-        # Universal binary - build both, then lipo
-        for target in "${TARGETS[@]}"; do
-            cargo build --release -p simulation-app --target "$target" --locked
+        sed -i '' 's/^\[patch\.crates-io\]/# [patch.crates-io]/' Cargo.toml
+        sed -i '' 's/^glutin = /# glutin = /' Cargo.toml
+        cargo update -p glutin -q
+    fi
+}
+
+# --- Cleanup Trap ---
+cleanup() {
+    toggle_patch disable
+}
+trap cleanup EXIT
+
+# Apply patch for macOS build
+toggle_patch enable
+
+# --- Build Logic ---
+
+# 1. Simulation App (Rust)
+if [ "$APP" = "y" ]; then
+    echo "Building Simulation App ($ARCH)..."
+    mkdir -p "$OUTPUT/simulation-app"
+    
+    case $ARCH in
+        native)
+            cargo build --release --locked --bin simulation-app
+            cp target/release/simulation-app "$OUTPUT/simulation-app/"
+            ;;
+        universal)
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+            cargo build --release --locked --target aarch64-apple-darwin --bin simulation-app
+            cargo build --release --locked --target x86_64-apple-darwin --bin simulation-app
+            lipo -create -output "$OUTPUT/simulation-app/simulation-app" \
+                target/aarch64-apple-darwin/release/simulation-app \
+                target/x86_64-apple-darwin/release/simulation-app
+            ;;
+        *)
+            TARGET="${ARCH}-apple-darwin"
+            rustup target add "$TARGET"
+            cargo build --release --locked --target "$TARGET" --bin simulation-app
+            cp "target/$TARGET/release/simulation-app" "$OUTPUT/simulation-app/"
+            ;;
+    esac
+    
+    cp -r simulation-app/www "$OUTPUT/simulation-app/"
+
+    # Bundle MuJoCo
+    if [ -e "$MUJOCO_DYNAMIC_LINK_DIR/libmujoco.dylib" ]; then
+        # User requested keeping the specific version name and preserving signature
+        TARGET_LIB="libmujoco.3.3.7.dylib"
+        
+        cp -L "$MUJOCO_DYNAMIC_LINK_DIR/libmujoco.dylib" "$OUTPUT/simulation-app/$TARGET_LIB"
+        BIN="$OUTPUT/simulation-app/simulation-app"
+        
+        # Change any mujoco reference to @rpath/libmujoco.3.3.7.dylib
+        # We modify the APP binary usage, but we do NOT touch the dylib's ID or signature.
+        otool -L "$BIN" | grep "mujoco" | awk '{print $1}' | while read -r lib; do
+             echo "Repointing $lib to @rpath/$TARGET_LIB"
+             install_name_tool -change "$lib" "@rpath/$TARGET_LIB" "$BIN"
         done
     fi
-
-    sync
-    mkdir -p $OUTPUT_APP
-
-    # Determine the binary location(s)
-    if [ ${#TARGETS[@]} -eq 0 ]; then
-        # Native build
-        cp ./target/release/simulation-app $OUTPUT_APP
-    elif [ ${#TARGETS[@]} -eq 1 ]; then
-        # Single target build
-        cp "./target/${TARGETS[0]}/release/simulation-app" $OUTPUT_APP
-    else
-        # Universal binary - combine with lipo
-        echo "Creating universal binary..."
-        lipo -create \
-            "./target/aarch64-apple-darwin/release/simulation-app" \
-            "./target/x86_64-apple-darwin/release/simulation-app" \
-            -output "$OUTPUT_APP/simulation-app"
-    fi
-
-    cp -rf simulation-app/www/ $OUTPUT_APP
-
-    if [ -e mujoco-3.3.7/lib/libmujoco.dylib ]; then
-        # Copy the dylib (resolves the symlink so we get the real file)
-        cp -L mujoco-3.3.7/lib/libmujoco.dylib $OUTPUT_APP/libmujoco.dylib
-
-        # Find and change any mujoco library references to use @rpath
-        while IFS= read -r line; do
-            if [[ "$line" == *"mujoco"* ]] && [[ "$line" != *"@rpath"* ]]; then
-                # Extract the library path (first whitespace-separated field)
-                OLD_REF=$(echo "$line" | awk '{print $1}')
-                if [ -n "$OLD_REF" ]; then
-                    install_name_tool -change "$OLD_REF" @rpath/libmujoco.dylib "$OUTPUT_APP/simulation-app"
-                fi
-            fi
-        done < <(otool -L "$OUTPUT_APP/simulation-app" | tail -n +2)
-
-        # Add the rpath so dylib is found next to the executable
-        install_name_tool -add_rpath @executable_path "$OUTPUT_APP/simulation-app"
-    else
-        echo "Warning: libmujoco.dylib not found in mujoco-3.3.7/lib/"
-    fi
 fi
 
-# Build Python bindings
+# 2. Python Bindings
 if [ "$PYTHON" = "y" ]; then
-    cd simulation/
+    echo "Building Python Bindings..."
+    mkdir -p "$OUTPUT/python"
+    
+    # Python builds are per-arch (wheels). Universal logic just loops.
+    case $ARCH in
+        native)    TARGETS=("") ;;
+        universal) TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin") ;;
+        arm64)     TARGETS=("aarch64-apple-darwin") ;;
+        x86_64)    TARGETS=("x86_64-apple-darwin") ;;
+        *)         TARGETS=("${ARCH}-apple-darwin") ;;
+    esac
 
-    # Build for specified architecture(s)
-    if [ ${#TARGETS[@]} -eq 0 ]; then
-        # Native build
-        maturin build --release --locked
-    elif [ ${#TARGETS[@]} -eq 1 ]; then
-        # Single target build
-        case "${TARGETS[0]}" in
-            aarch64-apple-darwin)
-                maturin build --release --locked --target aarch64-apple-darwin
-                ;;
-            x86_64-apple-darwin)
-                maturin build --release --locked --target x86_64-apple-darwin
-                ;;
-        esac
-    else
-        # Universal binary - build both architectures (PyPI standard: separate wheels per arch)
-        rustup target add aarch64-apple-darwin 2>/dev/null || true
-        maturin build --release --locked --target aarch64-apple-darwin
-        maturin build --release --locked --target x86_64-apple-darwin
+    # Ensure targets are installed if not native
+    if [ "${TARGETS[0]}" != "" ]; then
+        rustup target add "${TARGETS[@]}"
     fi
 
-    sync
-    cd "$CWD"
-    mkdir -p $OUTPUT_PYTHON
-    cp -rf ./target/wheels/* $OUTPUT_PYTHON
+    pushd simulation > /dev/null
+    for target in "${TARGETS[@]}"; do
+        ARGS=("--release" "--locked")
+        [ -n "$target" ] && ARGS+=("--target" "$target")
+        maturin build "${ARGS[@]}"
+    done
+    popd > /dev/null
 
-    # Use delocate to bundle native macOS libs and fix install names (if available)
-    echo "Running delocate-wheel to repair macOS wheels..."
-    for wheel in "$OUTPUT_PYTHON"/*.whl; do
+    # Collect and Repair Wheels
+    cp target/wheels/*.whl "$OUTPUT/python/"
+    echo "Repairing wheels..."
+    for wheel in "$OUTPUT/python"/*.whl; do
         [ -f "$wheel" ] || continue
-        tmpout=$(mktemp -d)
-        # delocate-wheel writes repaired wheel(s) to the target directory
-        if delocate-wheel -w "$tmpout" "$wheel"; then
-            mv "$tmpout"/*.whl "$wheel"
+        TMP=$(mktemp -d)
+        if delocate-wheel -w "$TMP" "$wheel"; then
+            mv "$TMP"/*.whl "$wheel"
+            echo "Fixed: $(basename "$wheel")"
         else
-            echo "Warning: delocate-wheel failed for $wheel" >&2
+            echo "Failed to fix: $wheel"
         fi
-        rm -rf "$tmpout"
+        rm -rf "$TMP"
     done
 fi
 
-# Build documentation
+# 3. Documentation
 if [ "$DOC" = "y" ]; then
+    echo "Generating Docs..."
+    mkdir -p "$OUTPUT/doc"
     DOCS_RS=y cargo doc -p fuzbai_simulator --no-deps --document-private-items --features python-bindings --locked
-    sync
-    mkdir -p $OUTPUT_DOC
-    cp -rf ./target/doc/* $OUTPUT_DOC
-    ln -sf doc/fuzbai_simulator/index.html $OUTPUT/DOCUMENTATION.html
+    cp -r target/doc/* "$OUTPUT/doc/"
+    ln -sf doc/fuzbai_simulator/index.html "$OUTPUT/DOCUMENTATION.html"
 fi
 
-# Generate licenses
+# 4. Licenses
 if [ "$LICENSES" = "y" ]; then
-    # Setup cargo-about
-    cargo install cargo-about --locked
-    # Generate licenses file
-    cargo about generate about.hbs --features python-bindings -o $OUTPUT/THIRD_PARTY_NOTICES.html
+    echo "Generating Licenses..."
+    cargo install cargo-about --locked -q || true
+    cargo about generate about.hbs --features python-bindings -o "$OUTPUT/THIRD_PARTY_NOTICES.html"
 fi
-
 echo "============================="
 echo "Finished! Saved in $OUTPUT"
 echo "============================="

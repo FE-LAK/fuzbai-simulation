@@ -1,4 +1,4 @@
-maturin[patchelf]~=1.9.0; sys_platform != "win32"
-maturin~=1.9.0; sys_platform == "win32"
+maturin[patchelf]~=1.9.0; sys_platform == "linux"
+maturin~=1.9.0; sys_platform != "linux"
 mujoco==3.3.7; sys_platform == "darwin"
 delocate~=0.13.0; sys_platform == "darwin"
