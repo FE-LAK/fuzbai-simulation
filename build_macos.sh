@@ -66,6 +66,8 @@ uncomment_patch() {
 recomment_patch() {
     sed -i '' 's/^\[patch\.crates-io\]/# [patch.crates-io]/' Cargo.toml
     sed -i '' 's/^glutin = /# glutin = /' Cargo.toml
+    # Revert glutin to the published crates.io version
+    cargo update -p glutin
 }
 
 # Ensure patch is re-commented on exit (even if build fails)
@@ -73,6 +75,10 @@ trap recomment_patch EXIT
 
 # Uncomment the patch for macOS build
 uncomment_patch
+
+# Update glutin to the patched version
+echo "Updating glutin to patched version..."
+cargo update -p glutin
 
 # Determine target triples based on architecture argument
 case $ARCH in
