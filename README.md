@@ -69,6 +69,25 @@ on each PC where this will be used.
 
 The [Rust toolchain](https://rust-lang.org/tools/install/) must be installed to compile on Linux, as well as standard C build tools.
 
+## MacOS
+
+To build simulation dependencies on MacOS, a path to the MuJoCo simulation engine must be configured.
+
+First download and extract MuJoCo:
+
+```shell
+./fetch_mujoco_macos.sh
+```
+
+Then set the environmental variables:
+
+```shell
+source ./setup_macos.sh
+```
+
+The [Rust toolchain](https://rust-lang.org/tools/install/) and Xcode (`xcode-select --install`)
+must be installed to compile on MacOS.
+
 ## Windows
 In powershell, execute
 ```shell
@@ -91,6 +110,11 @@ The "Desktop development with C++" option should be sufficient.
 - Linux:
   ```shell
   ./build_linux.sh --help
+  ```
+
+- MacOS:
+  ```shell
+  ./build_macos.sh --help
   ```
 
 - Windows:
