@@ -39,10 +39,11 @@ fi
 mkdir -p "$DEST/lib"
 cp -R "$FRAMEWORK" "$DEST/lib/"
 
-# Fix the dylib's install_name so DYLD_LIBRARY_PATH / @rpath resolution works
+# Preserve the dylib's original install_name to avoid breaking its code signature.
+# We intentionally DO NOT run install_name_tool here because modifying the Mach-O
+# (even to set an @rpath id) will invalidate the vendor's codesign. Instead,
+# we rely on symlinks / runpath resolution at runtime so no re-signing is required.
 DYLIB="$DEST/lib/mujoco.framework/Versions/A/$DYLIB_NAME"
-chmod u+w "$DYLIB"
-install_name_tool -id libmujoco.dylib "$DYLIB"
 
 # Create the symlink expected by mujoco-rs in lib/
 (cd "$DEST/lib" && ln -sf "mujoco.framework/Versions/Current/$DYLIB_NAME" libmujoco.dylib)
