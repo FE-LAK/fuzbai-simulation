@@ -166,7 +166,7 @@ fi
 # 4. Licenses
 if [ "$LICENSES" = "y" ]; then
     echo "Generating Licenses..."
-    cargo install cargo-about --locked -q || true
+    cargo install cargo-about --locked --version 0.8.4
     cargo about generate about.hbs --features python-bindings -o "$OUTPUT/THIRD_PARTY_NOTICES.html"
 fi
 echo "============================="

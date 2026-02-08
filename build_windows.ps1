@@ -133,7 +133,7 @@ if ($DOC -eq "y") {
 # ----------------------------
 if ($LICENSES -eq "y") {
     # Setup cargo-about
-    cargo install cargo-about --locked
+    cargo install cargo-about --locked --version 0.8.4
     # Generate licenses file
     cargo about generate about.hbs --features python-bindings -o $OUTPUT/THIRD_PARTY_NOTICES.html
 }

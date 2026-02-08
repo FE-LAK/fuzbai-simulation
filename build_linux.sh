@@ -64,8 +64,8 @@ if [ "$APP" = "y" ]; then
     cp ./target/release/simulation-app $OUTPUT_APP
     cp -rf simulation-app/www/ $OUTPUT_APP
 
-    if [ -e mujoco-3.3.7/lib/libmujoco.so ]; then  # Linux
-        cp mujoco-3.3.7/lib/libmujoco* $OUTPUT_APP
+    if [ -e mujoco-3.3.7/lib/libmujoco.so.3.3.7 ]; then  # Linux
+        cp mujoco-3.3.7/lib/libmujoco.so.3.3.7 $OUTPUT_APP
     else  # Windows
         cp mujoco-3.3.7/bin/mujoco.dll $OUTPUT_APP
     fi
@@ -93,7 +93,7 @@ fi
 # Generate licenses
 if [ "$LICENSES" = "y" ]; then
     # Setup cargo-about
-    cargo install cargo-about --locked
+    cargo install cargo-about --locked --version 0.8.4
     # Generate licenses file
     cargo about generate about.hbs --features python-bindings -o $OUTPUT/THIRD_PARTY_NOTICES.html
 fi

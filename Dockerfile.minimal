@@ -23,6 +23,9 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile=minimal --default-too
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+# Cargo about (licensing)
+RUN cargo install cargo-about --locked --version 0.8.4
+
 # Python
 # Copy requirements first for caching
 COPY requirements_py.txt /tmp/pydeps/
