@@ -6,6 +6,16 @@ The application manages the match state, including match duration, scoring,
 and resets. It provides an HTTP API for retrieving simulation state (camera data)
 and sending rod control commands.
 
+### MacOS Notice
+If you are running the particular `simulation-app` binary on MacOS, you might need to handle the quarantine attribute for non-signed images.
+
+1. Go to the simulation-app binary location.
+2. Remove the information that the binary came from untrusted source (result of the binary not being signed):
+   ```shell
+   xattr -d com.apple.quarantine ./simulation-app
+   ```
+3. Run the binary.
+
 ## Web application
 The static assets for the web interface are located in the [www/](www/) directory.
 The application serves these files to provide a real-time visualization

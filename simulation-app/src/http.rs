@@ -181,8 +181,21 @@ pub struct ResetResponse {
 pub struct ApiDoc;
 
 pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Arc<Notify>) {
+    // Try to obtain the www/ path next to the executable.
+    // When the www/ does not exist next to the executable,
+    // search the current working directory.
+    let www_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.parent()
+                .map(|p| p.join("www"))
+                .filter(|p| p.exists())
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("./www/"));
+
     let factory = |state: Arc<Mutex<ServerState>>| {
             let port = state.lock_unpoison().port;
+            let www_dir = www_dir.clone();
             HttpServer::new(move || {
             let json_config = web::JsonConfig::default().limit(5000);
             App::new()
@@ -197,7 +210,7 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
                 .service(reset_rotations)
                 .service(get_competition)
                 .service(
-                    Files::new("/", "./www/")
+                    Files::new("/", &www_dir)
                     .index_file("Render.html")
                 )
         })

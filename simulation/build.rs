@@ -1,5 +1,8 @@
 //! Build script for compiling an XML MuJoCo model into MJB.
 //! This is used for easier embedding inside the binary.
+use std::process::Command;
+use std::path::Path;
+
 #[cfg(windows)]
 use std::path::PathBuf;
 
@@ -11,18 +14,67 @@ fn main() {
     const MODEL_PATH: &str = "../models/miza.xml";
     const OUTPUT_PATH: &str = "./src/miza.mjb";
 
-    // The compiler is part of the MuJoCo's sample programs in official MuJoCo builds.
     let _ = std::fs::remove_file(OUTPUT_PATH);
-    std::process::Command::new("../mujoco-3.3.7/bin/compile")
-        .arg(MODEL_PATH)
-        .arg(OUTPUT_PATH)
-        .output()
-        .expect("failed to compile MuJoCo model from XML to MJB.");
+    compile_model(MODEL_PATH, OUTPUT_PATH);
 
     // Copy the MuJoCo DLL for proper embedding in the Python wheel.
     #[cfg(windows)]
     #[cfg(feature = "python-bindings")]
     copy_mujoco()
+}
+
+fn compile_model(model_path: &str, output_path: &str) {
+    // Fall back to binary method for Linux and Windows
+    if try_compile_with_binary(model_path, output_path, "../mujoco-3.3.7/bin/compile") {
+        return;
+    }
+
+    // Try Python as fallback for all platforms
+    if try_compile_with_python(model_path, output_path) {
+        return;
+    }
+
+    panic!(
+        "Failed to compile MuJoCo model. Please ensure one of:\n\
+        1. MuJoCo is installled available Python: pip install mujoco~=3.3.7\n\
+        2. MuJoCo is properly installed at ../mujoco-3.3.7/"
+    );
+}
+
+fn try_compile_with_python(model_path: &str, output_path: &str) -> bool {
+    let python_exe = std::env::var("PYTHON_EXE").unwrap_or_else(|_| "python3".to_string());
+    match Command::new(&python_exe)
+        .arg("compile_model.py")
+        .arg(model_path)
+        .arg(output_path)
+        .output() {
+        Ok(output) if output.status.success() => {
+            println!("Compiled MuJoCo model with Python script");
+            true
+        }
+        Ok(output) => {
+            eprintln!("Warning: Python compilation failed: {}", String::from_utf8_lossy(&output.stderr));
+            false
+        }
+        Err(_) => false,
+    }
+}
+
+fn try_compile_with_binary(model_path: &str, output_path: &str, binary_path: &str) -> bool {
+    match Command::new(binary_path)
+        .arg(model_path)
+        .arg(output_path)
+        .output() {
+        Ok(output) if output.status.success() => {
+            println!("Compiled MuJoCo model with {}", binary_path);
+            true
+        }
+        Ok(output) => {
+            eprintln!("Warning: Failed to compile with {}: {}", binary_path, String::from_utf8_lossy(&output.stderr));
+            false
+        }
+        Err(_) => false,
+    }
 }
 
 #[cfg(windows)]
