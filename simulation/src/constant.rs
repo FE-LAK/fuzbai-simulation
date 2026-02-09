@@ -155,9 +155,9 @@ pub const DEFAULT_BALL_POSITION: XYZType = [0.718, 0.65, 0.194];
 /// Scale of the velocity at which to nudge the ball with [`FuzbAISimulator::nudge_ball`].
 pub const DEFAULT_BALL_NUDGE_VELOCITY_SCALE: XYZType = [0.5, 0.5, 0.0];
 /// The noise (in millimeters) added to the ball's position.
-pub const BALL_POSITION_NOISE: f64 = 5.0;
+pub const BALL_POSITION_NOISE: f64 = 2.0;
 /// The noise (in meters) added to the ball's velocity.
-pub const BALL_VELOCITY_NOISE: f64 = 0.0125;
+pub const BALL_VELOCITY_NOISE: f64 = 0.010;
 /// Minimal ball velocity at which the ball is considered to be moving.
 pub const BALL_MOVING_VELOCITY: f64 = 0.05;
 /// The time after which the simulation is considered truncated upon
