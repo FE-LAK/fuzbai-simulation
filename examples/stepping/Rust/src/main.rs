@@ -1,7 +1,25 @@
-use std::thread;
+//!
+//! Before running run this example, some dependencies must be set.
+//! 
+//! First, move to the root of the repository (not the example).
+//! Then fetch the MuJoCo dependency:
+//! - Linux: ./fetch_mujoco_linux.sh
+//! - Windows: .\fetch_mujoco_windows.ps1
+//! - MacOS: ./fetch_mujoco_macos.sh
+//! 
+//! Then export variables (needs to be re-run every time the terminal is closed):
+//! - Linux: source setup_linux.sh
+//! - Windows: .\setup_windows.ps1
+//! - MacOS: source setup_macos.sh
+//! 
+//! You should now be able to run the example.
+//! 
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
+use std::time::Instant;
+use std::thread;
 
 fn physics(mut sim: FuzbAISimulator) {
+    let start_time = Instant::now();
     while sim.viewer_running() {
         // Terminated: goal scored or ball outside the field.
         // Truncated: ball stopped moving.
@@ -15,6 +33,21 @@ fn physics(mut sim: FuzbAISimulator) {
             PlayerTeam::Red, // Team
             None             // Delay override. When None is passed,
                              // delay will be equal to the value of simulated_delay_s (passed in constructor).
+        );
+
+        // Set motor commands
+        let current_time_s = start_time.elapsed().as_secs_f64();
+        sim.set_motor_command(
+            &std::array::from_fn::<_, 4, _>(|i|  // Construct 4 element array, based on indices
+                (
+                    i + 1,  // Player index (1 => goalkeeper)
+                    0.5 * (f64::sin(current_time_s) + 1.0),  // Target translation (0-1)
+                    0.5 * f64::sin(2.0 * current_time_s),    // Target rotation (-1, 1)
+                    1.0,  // Full translational velocity
+                    1.0   // Full rotational velocity
+                )
+            ),
+            PlayerTeam::Red
         );
 
         // Move time forward in simulation.
@@ -50,8 +83,10 @@ fn main() {
         )
     );
 
-    // Disable the built-in agent on both sides.
-    sim.set_external_mode(PlayerTeam::Red, false);
+    // Disable the built-in agent of the red side.
+    sim.set_external_mode(PlayerTeam::Red, true);
+
+    // Enable the built-in agent of the blue side.
     sim.set_external_mode(PlayerTeam::Blue, false);
 
     // Start the physics simulation.

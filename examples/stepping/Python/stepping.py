@@ -1,6 +1,8 @@
 from threading import Thread
 
 import fuzbai_simulator as fs
+import math
+import time
 
 
 # The actual simulation in a separate thread to improve performance.
@@ -18,6 +20,17 @@ def physics(simulator: fs.FuzbAISimulator):
             None  # Delay override. When None is passed,
                   # delay will be equal to the value of simulated_delay_s (passed in constructor).
         )
+
+        # Set motor commands
+        simulator.set_motor_command([
+            (
+                i + 1,  # Player index (1 => goalkeeper)
+                0.5 * (math.sin(time.time()) + 1),  # Target translation (0-1)
+                0.5 * math.sin(2 * time.time()),  # Target rotation (-1, 1)
+                1.0,  # Full translational velocity
+                1.0   # Full rotational velocity
+            ) for i in range(4)
+        ], fs.PlayerTeam.Red)
 
         # Move time forward in simulation.
         simulator.step_simulation()
@@ -49,8 +62,10 @@ sim = fs.FuzbAISimulator(
     )
 )
 
-# Enable the built-in agent on both sides.
-sim.set_external_mode(fs.PlayerTeam.Red, False)
+# Disable the built-in agent on the red team.
+sim.set_external_mode(fs.PlayerTeam.Red, True)
+
+# Enable the built-in agent on the blue team.
 sim.set_external_mode(fs.PlayerTeam.Blue, False)
 
 # Start the physics simulation.
