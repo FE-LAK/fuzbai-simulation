@@ -14,4 +14,4 @@ python-bindings = ["dep:pyo3"]
 pyo3 = {version = "0.24.2", features = ["extension-module", "abi3-py38"], optional = true}
 demo-fuzbai-agent = {path = "../demo-fuzbai-agent/"}
 rand = "0.9.1"
-mujoco-rs = { version = "2.3.0", default-features = false, features = ["viewer", "viewer-ui"] }
+mujoco-rs = { version = "2.3.4", default-features = false, features = ["viewer", "viewer-ui"] }
