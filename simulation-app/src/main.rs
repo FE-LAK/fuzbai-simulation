@@ -333,17 +333,25 @@ fn main() {
             };
 
             // Decide which string/score goes to which side
-            let (red_name, red_score, blue_name, blue_score) = if team0_is_red {
-                (name0, score0, name1, score1)
+            let (mut red_name, red_score, mut blue_name, blue_score, red_index) =
+            if team0_is_red {
+                (name0, score0, name1, score1, 0)
             } else {
-                (name1, score1, name0, score0)
+                (name1, score1, name0, score0, 1)
             };
 
             ui.columns(3, |uis| {
                 let [red_ui, mid_ui, blue_ui] = uis else { unreachable!() };
 
                 red_ui.vertical(|ui| {
-                    ui.label(RichText::new(red_name).strong().font(FontId::proportional(30.0)));
+                    if ui.add(
+                        egui::TextEdit::singleline(&mut red_name)
+                            .background_color(Color32::TRANSPARENT)
+                            .font(FontId::proportional(30.0))
+                    ).changed() {
+                        states[red_index].lock_unpoison().team_name = red_name;
+                    }
+
                     ui.label(RichText::new(red_score.to_string()).font(FontId::proportional(24.0)));
                 });
 
@@ -368,7 +376,14 @@ fn main() {
                         Align::Max, // right side
                     ),
                     |ui| {
-                        ui.label(RichText::new(blue_name).strong().font(FontId::proportional(30.0)));
+                        if ui.add(
+                            egui::TextEdit::singleline(&mut blue_name)
+                                .background_color(Color32::TRANSPARENT)
+                                .font(FontId::proportional(30.0))
+                                .horizontal_align(Align::Max)
+                        ).changed() {
+                            states[1 - red_index].lock_unpoison().team_name = blue_name;
+                        }
                         ui.label(RichText::new(blue_score.to_string()).font(FontId::proportional(24.0)));
                     },
                 );
