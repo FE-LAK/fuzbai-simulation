@@ -40,6 +40,7 @@ unsafe extern "C-unwind" fn handle_mujoco_error(c_error_message: *const std::os:
 enum CompetitionPending {
     ResetScore,
     ResetSimulation,
+    SwapTeams,
 }
 
 #[derive(PartialEq, Clone)]
@@ -262,6 +263,10 @@ fn main() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.pending.push_back(CompetitionPending::ResetScore);
                         }
+
+                        if ui.button("Swap teams").clicked() {
+                            COMPETITION_STATE.lock_unpoison().pending.push_back(CompetitionPending::SwapTeams);
+                        }
                     });
                 }
 
@@ -316,20 +321,30 @@ fn main() {
 
             // Three columns: red team, central state, blue team.
             ui.set_width(300.0);
+
+            // Lock briefly to get snapshots to avoid multiple sequential locks
+            let (team0_is_red, name0, score0) = {
+                let lock = states[0].lock_unpoison();
+                (lock.team == PlayerTeam::Red, lock.team_name.clone(), lock.score)
+            };
+            let (name1, score1) = {
+                let lock = states[1].lock_unpoison();
+                (lock.team_name.clone(), lock.score)
+            };
+
+            // Decide which string/score goes to which side
+            let (red_name, red_score, blue_name, blue_score) = if team0_is_red {
+                (name0, score0, name1, score1)
+            } else {
+                (name1, score1, name0, score0)
+            };
+
             ui.columns(3, |uis| {
                 let [red_ui, mid_ui, blue_ui] = uis else { unreachable!() };
-                red_ui.vertical(|ui| {
-                    // Prepare before passing to egui to reduce mutex contention.
-                    let (team_name_rt, score_rt) = {
-                        let red_lock = states[0].lock_unpoison();
-                        (
-                            RichText::new(&red_lock.team_name).strong().font(FontId::proportional(30.0)),
-                            RichText::new(red_lock.score.to_string()).font(FontId::proportional(24.0))
-                        )
-                    };
 
-                    ui.label(team_name_rt);
-                    ui.label(score_rt);
+                red_ui.vertical(|ui| {
+                    ui.label(RichText::new(red_name).strong().font(FontId::proportional(30.0)));
+                    ui.label(RichText::new(red_score.to_string()).font(FontId::proportional(24.0)));
                 });
 
                 mid_ui.centered_and_justified(|ui| {
@@ -353,17 +368,8 @@ fn main() {
                         Align::Max, // right side
                     ),
                     |ui| {
-                        // Prepare before passing to egui to reduce mutex contention.
-                        let (team_name_rt, score_rt) = {
-                            let blue_lock = states[1].lock_unpoison();
-                            (
-                                RichText::new(&blue_lock.team_name).strong().font(FontId::proportional(30.0)),
-                                RichText::new(blue_lock.score.to_string()).font(FontId::proportional(24.0))
-                            )
-                        };
-
-                        ui.label(team_name_rt);
-                        ui.label(score_rt);
+                        ui.label(RichText::new(blue_name).strong().font(FontId::proportional(30.0)));
+                        ui.label(RichText::new(blue_score.to_string()).font(FontId::proportional(24.0)));
                     },
                 );
             });
@@ -388,6 +394,11 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
                 match pending {
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
+                    CompetitionPending::SwapTeams => {
+                        let mut team1_lock = states[0].lock_unpoison();
+                        let mut team2_lock = states[1].lock_unpoison();
+                        std::mem::swap(&mut team1_lock.team, &mut team2_lock.team);
+                    }
                 }
             }
             comp_state.expired()
