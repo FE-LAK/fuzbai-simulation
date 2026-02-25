@@ -430,7 +430,7 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
         sim.step_simulation();
 
         /* Sync the simulation state with our competition state */
-        let score = sim.score().clone();
+        let score = *sim.score();
         for state in &states {
             let mut state = state.lock_unpoison();
             let team = state.team.clone();

@@ -1,4 +1,4 @@
-/// Contains definitions of needed constants.
+//! Contains definitions of needed constants.
 
 use crate::types::*;
 

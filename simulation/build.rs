@@ -1,7 +1,6 @@
 //! Build script for compiling an XML MuJoCo model into MJB.
 //! This is used for easier embedding inside the binary.
 use std::process::Command;
-use std::path::Path;
 
 #[cfg(windows)]
 use std::path::PathBuf;
