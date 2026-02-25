@@ -411,6 +411,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
                         let mut team1_lock = states[0].lock_unpoison();
                         let mut team2_lock = states[1].lock_unpoison();
                         std::mem::swap(&mut team1_lock.team, &mut team2_lock.team);
+                        let score = sim.score();
+                        sim.set_score([score[1], score[0]]);
                     }
                 }
             }
