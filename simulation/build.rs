@@ -3,6 +3,7 @@
 use std::process::Command;
 
 #[cfg(windows)]
+#[cfg(feature = "python-bindings")]
 use std::path::PathBuf;
 
 fn main() {
