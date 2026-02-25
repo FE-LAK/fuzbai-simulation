@@ -219,25 +219,22 @@ fn main() {
                 for state_mutex in &states {
 
                     // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
-                    let (team_string, port_string) = {
+                    let (team_string, port_string, mut builtin) = {
                         let team_state = state_mutex.lock_unpoison();
                         let team = &team_state.team;
                         let team_name = &team_state.team_name;
 
                         let port_string = team_state.port.to_string();
                         let team_string = format!("{team_name} ({team:?})");
-                        (team_string, port_string)
+                        (team_string, port_string, team_state.builtin)
                     };
 
                     ui.label(port_string);
                     ui.label(team_string);
 
-                    // Read the builtin state into a new variable, as locking the twice mutex is
-                    // much faster than keeping the lock active during the entire call.
-                    let mut builtin = state_mutex.lock_unpoison().builtin;
-
-                    ui.checkbox(&mut builtin, "built-in");
-                    state_mutex.lock_unpoison().builtin = builtin;
+                    if ui.checkbox(&mut builtin, "built-in").clicked() {
+                        state_mutex.lock_unpoison().builtin = builtin;
+                    };
                     ui.end_row();
                 }
             });
