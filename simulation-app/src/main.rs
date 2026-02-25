@@ -322,23 +322,20 @@ fn main() {
             // Three columns: red team, central state, blue team.
             ui.set_width(300.0);
 
-            // Lock briefly to get snapshots to avoid multiple sequential locks
-            let (team0_is_red, name0, score0) = {
+            // Red index is 0, when team is 0, otherwise it's 1
+            let (red_index, team_0_name, team_0_score) = {
                 let lock = states[0].lock_unpoison();
-                (lock.team == PlayerTeam::Red, lock.team_name.clone(), lock.score)
+                ((lock.team != PlayerTeam::Red) as usize, lock.team_name.clone(), lock.score)
             };
-            let (name1, score1) = {
+            let (team_1_name, team_1_score) = {
                 let lock = states[1].lock_unpoison();
                 (lock.team_name.clone(), lock.score)
             };
 
-            // Decide which string/score goes to which side
-            let (mut red_name, red_score, mut blue_name, blue_score, red_index) =
-            if team0_is_red {
-                (name0, score0, name1, score1, 0)
-            } else {
-                (name1, score1, name0, score0, 1)
-            };
+            // Check which string/score goes to which side
+            let (mut red_name, red_score, mut blue_name, blue_score) = if red_index == 0 {
+                (team_0_name, team_0_score, team_1_name, team_1_score)
+            } else { (team_1_name, team_1_score, team_0_name, team_0_score) };
 
             ui.columns(3, |uis| {
                 let [red_ui, mid_ui, blue_ui] = uis else { unreachable!() };
@@ -349,7 +346,10 @@ fn main() {
                             .background_color(Color32::TRANSPARENT)
                             .font(FontId::proportional(30.0))
                     ).changed() {
-                        states[red_index].lock_unpoison().team_name = red_name;
+                        // It's faster to re-lock rather than keeping the mutex
+                        // locked during egui processing.
+                        let mut lock = states[red_index].lock_unpoison();
+                        lock.team_name = red_name;
                     }
 
                     ui.label(RichText::new(red_score.to_string()).font(FontId::proportional(24.0)));
@@ -382,7 +382,8 @@ fn main() {
                                 .font(FontId::proportional(30.0))
                                 .horizontal_align(Align::Max)
                         ).changed() {
-                            states[1 - red_index].lock_unpoison().team_name = blue_name;
+                            let mut lock = states[1 - red_index].lock_unpoison();
+                            lock.team_name = blue_name;
                         }
                         ui.label(RichText::new(blue_score.to_string()).font(FontId::proportional(24.0)));
                     },
