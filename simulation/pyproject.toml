@@ -4,7 +4,6 @@ build-backend = "maturin"
 
 [project]
 name = "fuzbai_simulator"
-version = "4.1.0"
 requires-python = ">=3.11"
 authors = [
   {name = "David Hožič", email = "davidhozic@gmail.com"},
