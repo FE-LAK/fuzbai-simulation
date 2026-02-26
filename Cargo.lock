@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "fuzbai_simulator"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "demo-fuzbai-agent",
  "mujoco-rs",
@@ -1555,9 +1555,9 @@ dependencies = [
 
 [[package]]
 name = "mujoco-rs"
-version = "2.3.0+mj-3.3.7"
+version = "2.3.4+mj-3.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cacc2510de5dc8e3a5366b626756bbcd5d060555089d03125ce8910b2977885d"
+checksum = "e1f917d689d608d68c3ba9fa725cd885c4ef82ad525ae8ced6fabaa9a28d9d29"
 dependencies = [
  "bitflags 2.10.0",
  "bytemuck",
@@ -2488,7 +2488,7 @@ checksum = "e320a6c5ad31d271ad523dcf3ad13e2767ad8b1cb8f047f75a8aeaf8da139da2"
 
 [[package]]
 name = "simulation-app"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "actix-files",
  "actix-web",

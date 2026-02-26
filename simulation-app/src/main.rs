@@ -40,6 +40,7 @@ unsafe extern "C-unwind" fn handle_mujoco_error(c_error_message: *const std::os:
 enum CompetitionPending {
     ResetScore,
     ResetSimulation,
+    SwapTeams,
 }
 
 #[derive(PartialEq, Clone)]
@@ -92,11 +93,11 @@ fn main() {
 
     /* Initialize states for each team */
     let states = [
-        Arc::new(Mutex::new(http::ServerState {
+        Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new()
         })),
-        Arc::new(Mutex::new(http::ServerState {
+        Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_1, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new()
         }))
@@ -218,25 +219,22 @@ fn main() {
                 for state_mutex in &states {
 
                     // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
-                    let (team_string, port_string) = {
+                    let (team_string, port_string, mut builtin) = {
                         let team_state = state_mutex.lock_unpoison();
                         let team = &team_state.team;
                         let team_name = &team_state.team_name;
 
                         let port_string = team_state.port.to_string();
                         let team_string = format!("{team_name} ({team:?})");
-                        (team_string, port_string)
+                        (team_string, port_string, team_state.builtin)
                     };
 
                     ui.label(port_string);
                     ui.label(team_string);
 
-                    // Read the builtin state into a new variable, as locking the twice mutex is
-                    // much faster than keeping the lock active during the entire call.
-                    let mut builtin = state_mutex.lock_unpoison().builtin;
-
-                    ui.checkbox(&mut builtin, "built-in");
-                    state_mutex.lock_unpoison().builtin = builtin;
+                    if ui.checkbox(&mut builtin, "built-in").clicked() {
+                        state_mutex.lock_unpoison().builtin = builtin;
+                    };
                     ui.end_row();
                 }
             });
@@ -261,6 +259,10 @@ fn main() {
                         if ui.button("Reset score").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.pending.push_back(CompetitionPending::ResetScore);
+                        }
+
+                        if ui.button("Swap teams").clicked() {
+                            COMPETITION_STATE.lock_unpoison().pending.push_back(CompetitionPending::SwapTeams);
                         }
                     });
                 }
@@ -316,20 +318,38 @@ fn main() {
 
             // Three columns: red team, central state, blue team.
             ui.set_width(300.0);
+
+            // Red index is 0, when team is 0, otherwise it's 1
+            let (red_index, team_0_name, team_0_score) = {
+                let lock = states[0].lock_unpoison();
+                ((lock.team != PlayerTeam::Red) as usize, lock.team_name.clone(), lock.score)
+            };
+            let (team_1_name, team_1_score) = {
+                let lock = states[1].lock_unpoison();
+                (lock.team_name.clone(), lock.score)
+            };
+
+            // Check which string/score goes to which side
+            let (mut red_name, red_score, mut blue_name, blue_score) = if red_index == 0 {
+                (team_0_name, team_0_score, team_1_name, team_1_score)
+            } else { (team_1_name, team_1_score, team_0_name, team_0_score) };
+
             ui.columns(3, |uis| {
                 let [red_ui, mid_ui, blue_ui] = uis else { unreachable!() };
-                red_ui.vertical(|ui| {
-                    // Prepare before passing to egui to reduce mutex contention.
-                    let (team_name_rt, score_rt) = {
-                        let red_lock = states[0].lock_unpoison();
-                        (
-                            RichText::new(&red_lock.team_name).strong().font(FontId::proportional(30.0)),
-                            RichText::new(red_lock.score.to_string()).font(FontId::proportional(24.0))
-                        )
-                    };
 
-                    ui.label(team_name_rt);
-                    ui.label(score_rt);
+                red_ui.vertical(|ui| {
+                    if ui.add(
+                        egui::TextEdit::singleline(&mut red_name)
+                            .background_color(Color32::TRANSPARENT)
+                            .font(FontId::proportional(30.0))
+                    ).changed() {
+                        // It's faster to re-lock rather than keeping the mutex
+                        // locked during egui processing.
+                        let mut lock = states[red_index].lock_unpoison();
+                        lock.team_name = red_name;
+                    }
+
+                    ui.label(RichText::new(red_score.to_string()).font(FontId::proportional(24.0)));
                 });
 
                 mid_ui.centered_and_justified(|ui| {
@@ -353,17 +373,16 @@ fn main() {
                         Align::Max, // right side
                     ),
                     |ui| {
-                        // Prepare before passing to egui to reduce mutex contention.
-                        let (team_name_rt, score_rt) = {
-                            let blue_lock = states[1].lock_unpoison();
-                            (
-                                RichText::new(&blue_lock.team_name).strong().font(FontId::proportional(30.0)),
-                                RichText::new(blue_lock.score.to_string()).font(FontId::proportional(24.0))
-                            )
-                        };
-
-                        ui.label(team_name_rt);
-                        ui.label(score_rt);
+                        if ui.add(
+                            egui::TextEdit::singleline(&mut blue_name)
+                                .background_color(Color32::TRANSPARENT)
+                                .font(FontId::proportional(30.0))
+                                .horizontal_align(Align::Max)
+                        ).changed() {
+                            let mut lock = states[1 - red_index].lock_unpoison();
+                            lock.team_name = blue_name;
+                        }
+                        ui.label(RichText::new(blue_score.to_string()).font(FontId::proportional(24.0)));
                     },
                 );
             });
@@ -379,7 +398,7 @@ fn main() {
 }
 
 
-fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
+fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::TeamState>>; 2]) {
     let mut command_buffer = Vec::with_capacity(4);
     while sim.viewer_running() {
         let competition_expired = {
@@ -388,6 +407,13 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
                 match pending {
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
+                    CompetitionPending::SwapTeams => {
+                        let mut team1_lock = team_states[0].lock_unpoison();
+                        let mut team2_lock = team_states[1].lock_unpoison();
+                        std::mem::swap(&mut team1_lock.team, &mut team2_lock.team);
+                        let score = sim.score();
+                        sim.set_score([score[1], score[0]]);
+                    }
                 }
             }
             comp_state.expired()
@@ -400,16 +426,27 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
 
         // Step simulation and synchronize the state.
         if sim.terminated() || sim.truncated() {
-            println!("Score (Red-Blue): {:?}", sim.score());
+            let score = sim.score();
+            let mut red_name = String::new();
+            let mut blue_name = String::new();
+            for ts in &team_states {
+                let lock = ts.lock_unpoison();
+                if lock.team == PlayerTeam::Red {
+                    red_name = lock.team_name.clone();
+                } else {
+                    blue_name = lock.team_name.clone();
+                }
+            }
+            println!("Score ({} - {}): [{}, {}]", red_name, blue_name, score[0], score[1]);
             sim.reset_simulation();
         }
         sim.step_simulation();
 
         /* Sync the simulation state with our competition state */
-        let score = sim.score().clone();
-        for state in &states {
-            let mut state = state.lock_unpoison();
-            let team = state.team.clone();
+        let score = *sim.score();
+        for team_state in &team_states {
+            let mut team_state_lock = team_state.lock_unpoison();
+            let team = team_state_lock.team.clone();
             let observation = sim.delayed_observation(team.clone(), None);
             let (
                 mut ball_x, mut ball_y, ball_vx, ball_vy,
@@ -432,16 +469,16 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
             let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
 
             /* Update the state for the configured team */
-            state.camera_state.camData = [camera_data_0, camera_data_1];
-            state.score = score[team.clone() as usize];
-            sim.set_external_mode(team.clone(), !state.builtin);
+            team_state_lock.camera_state.camData = [camera_data_0, camera_data_1];
+            team_state_lock.score = score[team.clone() as usize];
+            sim.set_external_mode(team.clone(), !team_state_lock.builtin);
 
             command_buffer.clear();
-            command_buffer.extend(state.pending_commands.iter().take(4).map(|c|
+            command_buffer.extend(team_state_lock.pending_commands.iter().take(4).map(|c|
                 (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
             ));
 
-            state.pending_commands.clear();
+            team_state_lock.pending_commands.clear();
             sim.set_motor_command(&command_buffer, team);
         }
     }

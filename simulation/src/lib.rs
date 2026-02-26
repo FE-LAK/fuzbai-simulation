@@ -257,8 +257,7 @@ impl FuzbAISimulator {
     /// It is closed upon destroying the viewer object, which only happens
     /// when the entire program terminates.
     pub fn viewer_running(&self) -> bool {
-        G_VIEWER_SHARED_STATE.get().map_or(
-            false,  // if it doesn't exist, then it can't be running
+        G_VIEWER_SHARED_STATE.get().is_some_and(
             |state| state.lock_unpoison().running()
         )
     }
@@ -1011,8 +1010,7 @@ impl ViewerProxy {
     }
 
     pub fn running(&self) -> bool {
-        G_VIEWER_SHARED_STATE.get().map_or(
-            false,
+        G_VIEWER_SHARED_STATE.get().is_some_and(
             |state| state.lock_unpoison().running()
         )
     }

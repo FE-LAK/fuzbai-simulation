@@ -82,8 +82,8 @@ pub struct MotorCommands {
 }
 
 
-/// Shared state between HTTP server and the simulation.
-pub struct ServerState {
+/// Shared state between HTTP server and the simulation (per team).
+pub struct TeamState {
     /* Synced from simulation to server (state) */
     pub camera_state: CameraState,
     pub score: u16,
@@ -180,7 +180,7 @@ pub struct ResetResponse {
 )]
 pub struct ApiDoc;
 
-pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Arc<Notify>) {
+pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], shutdown_notify: Arc<Notify>) {
     // Try to obtain the www/ path next to the executable.
     // When the www/ does not exist next to the executable,
     // search the current working directory.
@@ -193,15 +193,15 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
         })
         .unwrap_or_else(|| std::path::PathBuf::from("./www/"));
 
-    let factory = |state: Arc<Mutex<ServerState>>| {
-            let port = state.lock_unpoison().port;
+    let factory = |team_state: Arc<Mutex<TeamState>>| {
+            let port = team_state.lock_unpoison().port;
             let www_dir = www_dir.clone();
             HttpServer::new(move || {
             let json_config = web::JsonConfig::default().limit(5000);
             App::new()
                 .wrap(NormalizePath::new(TrailingSlash::Trim))
                 .app_data(json_config)
-                .app_data(web::Data::new(state.clone()))
+                .app_data(web::Data::new(team_state.clone()))
                 .service(get_openapi)
                 .service(get_docs)
                 .service(get_camera_state)
@@ -222,7 +222,7 @@ pub async fn http_task(states: [Arc<Mutex<ServerState>>; 2], shutdown_notify: Ar
 
     let mut join_set = tokio::task::JoinSet::new();
 
-    let server_handles = states.map(|state| {
+    let server_handles = team_states.map(|state| {
         let server = factory(state.clone());
         let handle = server.handle();
         join_set.spawn(server);
@@ -301,7 +301,7 @@ async fn get_docs() -> impl Responder {
     )
 )]
 #[get("/Camera/State")]
-async fn get_camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+async fn get_camera_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
     HttpResponse::Ok().json(&data.lock_unpoison().camera_state)
 }
 
@@ -315,7 +315,7 @@ async fn get_camera_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Resp
     )
 )]
 #[post("/Motors/SendCommand")]
-async fn send_command(data: web::Data<Arc<Mutex<ServerState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
+async fn send_command(data: web::Data<Arc<Mutex<TeamState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
     data.lock_unpoison().pending_commands = commands.into_inner().commands;
     HttpResponse::Ok()
 }
@@ -342,7 +342,7 @@ async fn reset_rotations() -> impl Responder {
     )
 )]
 #[get("/State")]
-async fn get_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+async fn get_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
     let camera_state = data.lock_unpoison().camera_state.clone();
     let rp = camera_state.camData[0].rod_position_calib;
     let rr = camera_state.camData[0].rod_angle;
@@ -378,7 +378,7 @@ async fn get_state(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
 }
 
 #[get("/Competition")]
-async fn get_competition(data: web::Data<Arc<Mutex<ServerState>>>) -> impl Responder {
+async fn get_competition(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
     let name = &data.lock_unpoison().team_name;
     let response = CompetitionResponse {
         state: 2,
