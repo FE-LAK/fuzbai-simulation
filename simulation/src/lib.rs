@@ -11,9 +11,9 @@ pub use mujoco_rs::viewer::egui;
 use demo_fuzbai_agent::Agent as BuiltInAgent;
 
 use std::sync::{Arc, OnceLock, Mutex};
+use std::time::{Instant, Duration};
 use std::{collections::VecDeque};
 use std::cell::RefCell;
-use std::time::Instant;
 use std::fmt::Debug;
 use core::f64;
 
@@ -535,7 +535,10 @@ impl FuzbAISimulator {
             };
 
             if self.realtime {
-                while t_start.elapsed().as_secs_f64() < LOW_TIMESTEP {}  // Accurate timing
+                const SLEEP_DURATION: Duration = Duration::from_micros((LOW_TIMESTEP * 1e6).round() as u64);
+                while t_start.elapsed() < SLEEP_DURATION {   // Accurate sleep
+
+                }
             }
         }
 
