@@ -426,7 +426,18 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
 
         // Step simulation and synchronize the state.
         if sim.terminated() || sim.truncated() {
-            println!("Score (Red-Blue): {:?}", sim.score());
+            let score = sim.score();
+            let mut red_name = String::new();
+            let mut blue_name = String::new();
+            for ts in &team_states {
+                let lock = ts.lock_unpoison();
+                if lock.team == PlayerTeam::Red {
+                    red_name = lock.team_name.clone();
+                } else {
+                    blue_name = lock.team_name.clone();
+                }
+            }
+            println!("Score ({} - {}): [{}, {}]", red_name, blue_name, score[0], score[1]);
             sim.reset_simulation();
         }
         sim.step_simulation();
