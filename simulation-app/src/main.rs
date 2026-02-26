@@ -93,11 +93,11 @@ fn main() {
 
     /* Initialize states for each team */
     let states = [
-        Arc::new(Mutex::new(http::ServerState {
+        Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new()
         })),
-        Arc::new(Mutex::new(http::ServerState {
+        Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_1, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new()
         }))
@@ -398,7 +398,7 @@ fn main() {
 }
 
 
-fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerState>>; 2]) {
+fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::TeamState>>; 2]) {
     let mut command_buffer = Vec::with_capacity(4);
     while sim.viewer_running() {
         let competition_expired = {
@@ -408,8 +408,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
                     CompetitionPending::SwapTeams => {
-                        let mut team1_lock = states[0].lock_unpoison();
-                        let mut team2_lock = states[1].lock_unpoison();
+                        let mut team1_lock = team_states[0].lock_unpoison();
+                        let mut team2_lock = team_states[1].lock_unpoison();
                         std::mem::swap(&mut team1_lock.team, &mut team2_lock.team);
                         let score = sim.score();
                         sim.set_score([score[1], score[0]]);
@@ -433,9 +433,9 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
 
         /* Sync the simulation state with our competition state */
         let score = *sim.score();
-        for state in &states {
-            let mut state = state.lock_unpoison();
-            let team = state.team.clone();
+        for team_state in &team_states {
+            let mut team_state_lock = team_state.lock_unpoison();
+            let team = team_state_lock.team.clone();
             let observation = sim.delayed_observation(team.clone(), None);
             let (
                 mut ball_x, mut ball_y, ball_vx, ball_vy,
@@ -458,16 +458,16 @@ fn simulation_thread(sim: &mut FuzbAISimulator, states: [Arc<Mutex<http::ServerS
             let camera_data_1 = http::CameraData {cameraID: 1, ..camera_data_0};
 
             /* Update the state for the configured team */
-            state.camera_state.camData = [camera_data_0, camera_data_1];
-            state.score = score[team.clone() as usize];
-            sim.set_external_mode(team.clone(), !state.builtin);
+            team_state_lock.camera_state.camData = [camera_data_0, camera_data_1];
+            team_state_lock.score = score[team.clone() as usize];
+            sim.set_external_mode(team.clone(), !team_state_lock.builtin);
 
             command_buffer.clear();
-            command_buffer.extend(state.pending_commands.iter().take(4).map(|c|
+            command_buffer.extend(team_state_lock.pending_commands.iter().take(4).map(|c|
                 (c.driveID, c.translationTargetPosition, c.rotationTargetPosition, c.translationVelocity, c.rotationVelocity)
             ));
 
-            state.pending_commands.clear();
+            team_state_lock.pending_commands.clear();
             sim.set_motor_command(&command_buffer, team);
         }
     }
