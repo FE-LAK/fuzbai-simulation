@@ -14,6 +14,10 @@ const EXPIRED_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 
+/// Timeout, in seconds, after which the frequency display should consider the connection
+/// inactive.
+const CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS: u64 = 1;
+
 // Define global linkage for a MuJoCo error handler. This is redefined (from MuJoCo-rs's implementation)
 // to allow C-unwind, so panics can be triggered inside the handler.
 
@@ -95,11 +99,13 @@ fn main() {
     let states = [
         Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
-            score: 0, builtin: false, pending_commands: Vec::new()
+            score: 0, builtin: false, pending_commands: Vec::new(),
+            last_command_time: Instant::now(), frequency_smooth_hz: 0.0
         })),
         Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_1, team: PlayerTeam::Blue, team_name: "Team 2".to_string(),
-            score: 0, builtin: false, pending_commands: Vec::new()
+            score: 0, builtin: false, pending_commands: Vec::new(),
+            last_command_time: Instant::now(), frequency_smooth_hz: 0.0
         }))
     ];
 
@@ -219,22 +225,26 @@ fn main() {
                 for state_mutex in &states {
 
                     // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
-                    let (team_string, port_string, mut builtin) = {
+                    let (team_string, port_string, mut builtin, frequency_string) = {
                         let team_state = state_mutex.lock_unpoison();
                         let team = &team_state.team;
                         let team_name = &team_state.team_name;
 
                         let port_string = team_state.port.to_string();
                         let team_string = format!("{team_name} ({team:?})");
-                        (team_string, port_string, team_state.builtin)
+                        let frequency_string =
+                        if team_state.last_command_time.elapsed().as_secs() < CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS {
+                            format!("{:.2} Hz", team_state.frequency_smooth_hz)
+                        } else { "Inactive".to_string() };
+                        (team_string, port_string, team_state.builtin, frequency_string)
                     };
 
                     ui.label(port_string);
                     ui.label(team_string);
-
                     if ui.checkbox(&mut builtin, "built-in").clicked() {
                         state_mutex.lock_unpoison().builtin = builtin;
                     };
+                    ui.label(frequency_string);
                     ui.end_row();
                 }
             });

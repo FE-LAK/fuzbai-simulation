@@ -11,6 +11,7 @@ use actix_web::middleware::TrailingSlash;
 
 use fuzbai_simulator::{PlayerTeam, mujoco_rs::util::LockUnpoison};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tokio::sync::Notify;
 
 
@@ -19,6 +20,9 @@ use tokio::sync::Notify;
 /// A single worker will contain a new single-threaded tokio runtime in
 /// which tasks will be spawned.
 const NUM_WORKERS_PER_SERVER: usize = 3;
+
+/// The smoothing factor for the action execution frequency (first order filter).
+const CONNECTION_FREQUENCY_SMOOTHING: f32 = 0.1;
 
 
 /// Data received from a single camera.
@@ -93,7 +97,11 @@ pub struct TeamState {
     pub port: u16,
     pub team: PlayerTeam,
     pub team_name: String,
-    pub builtin: bool
+    pub builtin: bool,
+
+    /* Connection benchmarking */
+    pub last_command_time: Instant,
+    pub frequency_smooth_hz: f32
 }
 
 #[derive(Serialize, Clone, ToSchema)]
@@ -302,7 +310,12 @@ async fn get_docs() -> impl Responder {
 )]
 #[get("/Camera/State")]
 async fn get_camera_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
-    HttpResponse::Ok().json(&data.lock_unpoison().camera_state)
+    let camera_state = {
+        let mut lock = data.lock_unpoison();
+        update_team_frequency(&mut lock);
+        lock.camera_state.clone()
+    };
+    HttpResponse::Ok().json(&camera_state)
 }
 
 #[utoipa::path(
@@ -343,7 +356,12 @@ async fn reset_rotations() -> impl Responder {
 )]
 #[get("/State")]
 async fn get_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
-    let camera_state = data.lock_unpoison().camera_state.clone();
+    let camera_state = {
+        let mut lock = data.lock_unpoison();
+        update_team_frequency(&mut lock);
+        lock.camera_state.clone()
+    };
+
     let rp = camera_state.camData[0].rod_position_calib;
     let rr = camera_state.camData[0].rod_angle;
 
@@ -379,7 +397,7 @@ async fn get_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
 
 #[get("/Competition")]
 async fn get_competition(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
-    let name = &data.lock_unpoison().team_name;
+    let name = data.lock_unpoison().team_name.clone();
     let response = CompetitionResponse {
         state: 2,
         time: 0,
@@ -391,4 +409,12 @@ async fn get_competition(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Respond
     };
 
     HttpResponse::Ok().json(response)
+}
+
+/// Updates the frequency and the last command time for the given team (locked via mutex).
+fn update_team_frequency(lock: &mut std::sync::MutexGuard<'_, TeamState>) {
+    lock.frequency_smooth_hz += CONNECTION_FREQUENCY_SMOOTHING * (
+        1.0 / lock.last_command_time.elapsed().as_secs_f32() - lock.frequency_smooth_hz
+    );
+    lock.last_command_time = Instant::now();
 }
