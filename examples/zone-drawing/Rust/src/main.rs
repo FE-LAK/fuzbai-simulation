@@ -23,11 +23,11 @@
 //!
 //! You should now be able to run the example.
 //!
-use fuzbai_simulator::mujoco_rs::{
-    prelude::{MjData, MjModel, MjtFontScale, MjtObj, MjvCamera},
+use mujoco_rs::{
+    prelude::{MjModel, MjData, MjtObj, MjvCamera, MjtFontScale, MjtGeom},
     renderer::MjRenderer,
+    wrappers::MjvScene,
 };
-use fuzbai_simulator::render::Visualizer;
 use std::io::BufWriter;
 
 /// Ball configuration zones from the curriculum training table (local mm coords).
@@ -69,6 +69,74 @@ const ZONE_Z_OFFSETS: [f64; 7] = [
     0.010, // 7 - nested inside zone 5
 ];
 
+/// Z-coordinate of the main table field, in global coordinates.
+const Z_FIELD: f64 = 0.174 + 0.0175;
+/// The visual height (in meters) of the flat box drawn for a ball configuration zone.
+const BALL_CONFIG_ZONE_HEIGHT: f64 = 0.002;
+
+/// Renders a ball configuration zone as a bordered rectangle (4 thin bars forming the outline)
+/// plus an almost-invisible fill used only to anchor the text `label`.
+///
+/// Overlapping zones remain visually distinguishable because only
+/// the border is translucent - the interior stays transparent. This method requires
+/// 5 user-geom slots in the scene (1 fill + 4 border bars).
+///
+/// `border_mm` - border bar thickness in local millimetre.  
+/// `z_offset_m` - raises all geoms above `Z_FIELD` by the given metres. Use a larger value
+///   for inner zones so a slightly angled camera reveals them floating above outer zones.
+/// `label_x_offset_mm` - shift the label's x position relative to the zone centre (local mm).
+fn render_zone_outline(
+    scene: &mut MjvScene<&MjModel>,
+    zone: (f64, f64, f64, f64),
+    color: [f32; 4],
+    label: &str,
+    border_mm: f64,
+    z_offset_m: f64,
+    label_x_offset_mm: f64,
+) {
+    let (x_min, x_max, y_min, y_max) = zone;
+    let hz = BALL_CONFIG_ZONE_HEIGHT / 2.0;
+    let z  = Z_FIELD + z_offset_m;
+
+    let to_global = |cx_mm: f64, cy_mm: f64| -> [f64; 3] {[
+        (cx_mm + 115.0) / 1000.0,
+        (727.0 - cy_mm) / 1000.0,
+        z,
+    ]};
+
+    // Ghost fill - barely visible, anchors the label
+    let fill_color = [color[0], color[1], color[2], 0.08f32];
+    let fill_pos  = to_global((x_min + x_max) / 2.0 + label_x_offset_mm, (y_min + y_max) / 2.0);
+    let fill_size = [(x_max - x_min) / 2000.0, (y_max - y_min) / 2000.0, hz];
+    let fill_geom = scene.create_geom(
+        MjtGeom::mjGEOM_BOX, Some(fill_size), Some(fill_pos), None, Some(fill_color)
+    );
+    fill_geom.set_label(label);
+
+    // Border bars (caller's alpha allows overlapping borders to blend)
+    let border_color = color;
+    let bh  = border_mm / 2.0;
+    let hx  = (x_max - x_min) / 2.0;
+    let cx  = (x_min + x_max) / 2.0;
+    let cy  = (y_min + y_max) / 2.0;
+
+    scene.create_geom(MjtGeom::mjGEOM_BOX,
+        Some([hx / 1000.0, bh / 1000.0, hz]),
+        Some(to_global(cx, y_min + bh)), None, Some(border_color));
+
+    scene.create_geom(MjtGeom::mjGEOM_BOX,
+        Some([hx / 1000.0, bh / 1000.0, hz]),
+        Some(to_global(cx, y_max - bh)), None, Some(border_color));
+
+    scene.create_geom(MjtGeom::mjGEOM_BOX,
+        Some([bh / 1000.0, (y_max - y_min) / 2000.0, hz]),
+        Some(to_global(x_min + bh, cy)), None, Some(border_color));
+
+    scene.create_geom(MjtGeom::mjGEOM_BOX,
+        Some([bh / 1000.0, (y_max - y_min) / 2000.0, hz]),
+        Some(to_global(x_max - bh, cy)), None, Some(border_color));
+}
+
 fn main() {
     // Determine the path to the model XML.
     // Resolved relative to the workspace root (where cargo is run from).
@@ -105,11 +173,11 @@ fn main() {
         .enumerate()
     {
         let label = format!("{}", i + 1);
-        Visualizer::<&MjModel>::render_zone_outline(
+        render_zone_outline(
             renderer.user_scene_mut(),
             zone,
-            Some(color),
-            Some(&label),
+            color,
+            &label,
             6.0,   // border thickness in local mm
             z_off, // z-offset (inner zones float above outer)
             lx,    // label x offset in local mm

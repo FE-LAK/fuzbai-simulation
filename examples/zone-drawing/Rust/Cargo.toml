@@ -4,6 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-fuzbai_simulator = { path = "../../../simulation" }
 mujoco-rs = { version = "2.3.4", default-features = false, features = ["renderer"] }
 png = "0.18"
