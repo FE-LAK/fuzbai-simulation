@@ -168,5 +168,10 @@ pub const BALL_RADIUS_M: f64 = 0.0175;
 /// The color of ball's estimate display.
 pub const DEFAULT_BALL_ESTIMATE_RGBA: RGBAType = [1.0, 1.0, 0.0, 1.0];
 
+/// The default color of a ball configuration zone rectangle.
+pub const DEFAULT_BALL_CONFIG_ZONE_RGBA: RGBAType = [0.2, 0.6, 1.0, 0.35];
+/// The visual height (in meters) of the flat box drawn for a ball configuration zone.
+pub const BALL_CONFIG_ZONE_HEIGHT: f64 = 0.002;
+
 // Error messages
 pub const E_NOT_ENOUGH_ELEMENTS: &str = "not enough elements";

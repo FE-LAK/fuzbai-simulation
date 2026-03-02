@@ -84,6 +84,115 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
         }       
     }
 
+    /// Renders a single ball configuration zone to `scene` as a flat, semi-transparent box.
+    ///
+    /// The zone is specified as `(x_min, x_max, y_min, y_max)` in the **red team's local
+    /// coordinate system** (x and y in millimeters). The box is drawn at the table field surface
+    /// height ([`Z_FIELD`]).
+    ///
+    /// The optional `color` overrides the default [`DEFAULT_BALL_CONFIG_ZONE_RGBA`].
+    /// The optional `label` is rendered as a 3D text label at the zone's center.
+    pub fn render_zone(
+        scene: &mut MjvScene<M>,
+        zone: (f64, f64, f64, f64),
+        color: Option<RGBAType>,
+        label: Option<&str>,
+    ) {
+        let (x_min, x_max, y_min, y_max) = zone;
+        let color = color.unwrap_or(DEFAULT_BALL_CONFIG_ZONE_RGBA);
+
+        // Compute center in local mm and convert to global m via the same formula as local_to_global_position.
+        let center_local = [(x_min + x_max) / 2.0, (y_min + y_max) / 2.0, 0.0];
+        let pos = [
+            (center_local[0] + 115.0) / 1000.0,
+            (727.0 - center_local[1]) / 1000.0,
+            Z_FIELD,
+        ];
+
+        // MuJoCo box size is half-extents in each axis.
+        let size = [
+            (x_max - x_min) / 2000.0,
+            (y_max - y_min) / 2000.0,
+            BALL_CONFIG_ZONE_HEIGHT / 2.0,
+        ];
+
+        let vgeom = scene.create_geom(
+            MjtGeom::mjGEOM_BOX, Some(size), Some(pos), None, Some(color)
+        );
+        if let Some(text) = label {
+            vgeom.set_label(text);
+        }
+    }
+
+    /// Renders a ball configuration zone as a bordered rectangle (4 thin bars forming the outline)
+    /// plus an almost-invisible fill used only to anchor the text `label`.
+    ///
+    /// Unlike [`render_zone`], overlapping zones remain visually distinguishable because only
+    /// the border is translucent - the interior stays transparent. This method requires
+    /// 5 user-geom slots in the scene (1 fill + 4 border bars).
+    ///
+    /// `border_mm` - border bar thickness in local millimetre.  
+    /// `z_offset_m` - raises all geoms above [`Z_FIELD`] by the given metres. Use a larger value
+    ///   for inner zones so a slightly angled camera reveals them floating above outer zones.
+    /// `label_x_offset_mm` - shift the label's x position relative to the zone centre (local mm).
+    pub fn render_zone_outline(
+        scene: &mut MjvScene<M>,
+        zone: (f64, f64, f64, f64),
+        color: Option<RGBAType>,
+        label: Option<&str>,
+        border_mm: f64,
+        z_offset_m: f64,
+        label_x_offset_mm: f64,
+    ) {
+        let (x_min, x_max, y_min, y_max) = zone;
+        let color = color.unwrap_or(DEFAULT_BALL_CONFIG_ZONE_RGBA);
+        let hz = BALL_CONFIG_ZONE_HEIGHT / 2.0;
+        let z  = Z_FIELD + z_offset_m;
+
+        let to_global = |cx_mm: f64, cy_mm: f64| -> [f64; 3] {[
+            (cx_mm + 115.0) / 1000.0,
+            (727.0 - cy_mm) / 1000.0,
+            z,
+        ]};
+
+        // Ghost fill - barely visible, anchors the label
+
+        let fill_color = [color[0], color[1], color[2], 0.08f32];
+        let fill_pos  = to_global((x_min + x_max) / 2.0 + label_x_offset_mm, (y_min + y_max) / 2.0);
+        let fill_size = [(x_max - x_min) / 2000.0, (y_max - y_min) / 2000.0, hz];
+        let fill_geom = scene.create_geom(
+            MjtGeom::mjGEOM_BOX, Some(fill_size), Some(fill_pos), None, Some(fill_color)
+        );
+        if let Some(text) = label {
+            fill_geom.set_label(text);
+        }
+
+        // Border bars (caller's alpha allows overlapping borders to blend)
+
+        let border_color = color;
+        let bh  = border_mm / 2.0;
+        let hx  = (x_max - x_min) / 2.0;
+        let cx  = (x_min + x_max) / 2.0;
+        let cy  = (y_min + y_max) / 2.0;
+
+        scene.create_geom(MjtGeom::mjGEOM_BOX,
+            Some([hx / 1000.0, bh / 1000.0, hz]),
+            Some(to_global(cx, y_min + bh)), None, Some(border_color));
+
+        scene.create_geom(MjtGeom::mjGEOM_BOX,
+            Some([hx / 1000.0, bh / 1000.0, hz]),
+            Some(to_global(cx, y_max - bh)), None, Some(border_color));
+
+        scene.create_geom(MjtGeom::mjGEOM_BOX,
+            Some([bh / 1000.0, (y_max - y_min) / 2000.0, hz]),
+            Some(to_global(x_min + bh, cy)), None, Some(border_color));
+
+        scene.create_geom(MjtGeom::mjGEOM_BOX,
+            Some([bh / 1000.0, (y_max - y_min) / 2000.0, hz]),
+            Some(to_global(x_max - bh, cy)), None, Some(border_color));
+    }
+
+
     /// Renders to `scene` the `position` as the ball's estimate.
     pub fn render_ball_estimate(scene: &mut MjvScene<M>, position: &XYZType, color: Option<RGBAType>) {
         let color = color.unwrap_or(DEFAULT_BALL_ESTIMATE_RGBA);
