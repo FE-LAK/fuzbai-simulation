@@ -23,8 +23,9 @@
 //!
 //! You should now be able to run the example.
 //!
+use mujoco_rs::prelude::SpecItem;
 use mujoco_rs::{
-    prelude::{MjData, MjModel, MjtFontScale, MjtGeom, MjvCamera},
+    prelude::{MjSpec, MjData, MjModel, MjtFontScale, MjtGeom, MjvCamera},
     renderer::MjRenderer,
     wrappers::MjvScene,
 };
@@ -164,7 +165,16 @@ fn main() {
     let model_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../models/miza.xml");
 
     // Load the model and create physics state.
-    let model = MjModel::from_xml(model_path).expect("failed to load miza.xml");
+    let mut spec = MjSpec::from_xml(model_path).unwrap();
+
+    // Delete all rods that aren't the attacker rod.
+    for rod_i in &[1, 2, 3, 4, 5, 7, 8] {
+        let body = spec.body_mut(&format!("rod{rod_i}")).unwrap();
+        unsafe { body.delete().unwrap() };
+    }
+
+    // Compile modified model specification into the model.
+    let model = spec.compile().unwrap();
     let mut data = MjData::new(&model);
     // Run forward kinematics so all positions are up to date.
     data.step();
@@ -172,10 +182,10 @@ fn main() {
     // Use a free camera so we don't need to modify miza.xml with a custom camera.
     // We position it to mimic the angled view, giving perspective depth to separate nested zones.
     let mut camera = MjvCamera::new_free(&model);
-    camera.lookat = [0.850, 0.40, Z_FIELD];
-    camera.distance = 0.90;
+    camera.lookat = [0.850, 0.376, Z_FIELD];
+    camera.distance = 0.55;
     camera.azimuth = 0.0;
-    camera.elevation = -75.0;
+    camera.elevation = -55.0;
 
     // Build the offscreen renderer. 5 geom slots per zone (1 ghost fill + 4 border bars).
     let mut renderer = MjRenderer::builder()
@@ -185,11 +195,11 @@ fn main() {
         .expect("failed to create renderer");
 
     // Set a large font scale so labels are clearly legible.
-    renderer.set_font_scale(MjtFontScale::mjFONTSCALE_200);
+    renderer.set_font_scale(MjtFontScale::mjFONTSCALE_300);
 
     // Draw all zones into the user scene using border-only outlines.
     // Zone 4's label is shifted left so it doesn't overlap with zone 6.
-    const ZONE_LABEL_X_OFFSET: [f64; 7] = [0.0, 0.0, 0.0, -30.0, 0.0, 0.0, 0.0];
+    const ZONE_LABEL_X_OFFSET: [f64; 7] = [-15.0, -20.0, -15.0, -50.0, -10.0, -30.0, -10.0];
     for (i, (((&zone, &color), &z_off), &lx)) in BALL_CONFIG_ZONES
         .iter()
         .zip(ZONE_COLORS.iter())
