@@ -25,7 +25,7 @@
 //!
 use mujoco_rs::prelude::SpecItem;
 use mujoco_rs::{
-    prelude::{MjSpec, MjData, MjModel, MjtFontScale, MjtGeom, MjvCamera},
+    prelude::*,
     renderer::MjRenderer,
     wrappers::MjvScene,
 };
@@ -106,18 +106,29 @@ fn render_zone_outline(
     // Ghost fill - barely visible, anchors the label
     let fill_color = [color[0], color[1], color[2], 0.08f32];
     let fill_pos = to_global(
-        (x_min + x_max) / 2.0 + label_x_offset_mm,
+        (x_min + x_max) / 2.0,
         (y_min + y_max) / 2.0,
     );
     let fill_size = [(x_max - x_min) / 2000.0, (y_max - y_min) / 2000.0, hz];
-    let fill_geom = scene.create_geom(
+    scene.create_geom(
         MjtGeom::mjGEOM_BOX,
         Some(fill_size),
         Some(fill_pos),
         None,
         Some(fill_color),
     );
-    fill_geom.set_label(label);
+
+    let label_pos = to_global(
+        (x_min + x_max) / 2.0 + label_x_offset_mm,
+        (y_min + y_max) / 2.0,
+    );
+    scene.create_geom(
+        MjtGeom::mjGEOM_LABEL,
+        None,
+        Some(label_pos),
+        None,
+        None
+    ).set_label(label);
 
     // Border bars (caller's alpha allows overlapping borders to blend)
     let border_color = color;
@@ -173,6 +184,9 @@ fn main() {
         unsafe { body.delete().unwrap() };
     }
 
+    // Delete the ball
+    unsafe { spec.body_mut("ball").unwrap().delete().unwrap() };
+
     // Compile modified model specification into the model.
     let model = spec.compile().unwrap();
     let mut data = MjData::new(&model);
@@ -187,10 +201,10 @@ fn main() {
     camera.azimuth = 0.0;
     camera.elevation = -55.0;
 
-    // Build the offscreen renderer. 5 geom slots per zone (1 ghost fill + 4 border bars).
+    // Build the offscreen renderer. 5 geom slots per zone (1 ghost fill + 4 border bars + label).
     let mut renderer = MjRenderer::builder()
         .camera(camera)
-        .num_visual_user_geom(BALL_CONFIG_ZONES.len() as u32 * 5)
+        .num_visual_user_geom(BALL_CONFIG_ZONES.len() as u32 * 6)
         .build(&model)
         .expect("failed to create renderer");
 
