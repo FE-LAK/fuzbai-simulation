@@ -24,7 +24,7 @@
 //! You should now be able to run the example.
 //!
 use mujoco_rs::{
-    prelude::{MjModel, MjData, MjtObj, MjvCamera, MjtFontScale, MjtGeom},
+    prelude::{MjData, MjModel, MjtFontScale, MjtGeom, MjvCamera},
     renderer::MjRenderer,
     wrappers::MjvScene,
 };
@@ -96,45 +96,66 @@ fn render_zone_outline(
 ) {
     let (x_min, x_max, y_min, y_max) = zone;
     let hz = BALL_CONFIG_ZONE_HEIGHT / 2.0;
-    let z  = Z_FIELD + z_offset_m;
+    let z = Z_FIELD + z_offset_m;
 
-    let to_global = |cx_mm: f64, cy_mm: f64| -> [f64; 3] {[
-        (cx_mm + 115.0) / 1000.0,
-        (727.0 - cy_mm) / 1000.0,
-        z,
-    ]};
+    let to_global = |cx_mm: f64, cy_mm: f64| -> [f64; 3] {
+        [(cx_mm + 115.0) / 1000.0, (727.0 - cy_mm) / 1000.0, z]
+    };
 
     // Ghost fill - barely visible, anchors the label
     let fill_color = [color[0], color[1], color[2], 0.08f32];
-    let fill_pos  = to_global((x_min + x_max) / 2.0 + label_x_offset_mm, (y_min + y_max) / 2.0);
+    let fill_pos = to_global(
+        (x_min + x_max) / 2.0 + label_x_offset_mm,
+        (y_min + y_max) / 2.0,
+    );
     let fill_size = [(x_max - x_min) / 2000.0, (y_max - y_min) / 2000.0, hz];
     let fill_geom = scene.create_geom(
-        MjtGeom::mjGEOM_BOX, Some(fill_size), Some(fill_pos), None, Some(fill_color)
+        MjtGeom::mjGEOM_BOX,
+        Some(fill_size),
+        Some(fill_pos),
+        None,
+        Some(fill_color),
     );
     fill_geom.set_label(label);
 
     // Border bars (caller's alpha allows overlapping borders to blend)
     let border_color = color;
-    let bh  = border_mm / 2.0;
-    let hx  = (x_max - x_min) / 2.0;
-    let cx  = (x_min + x_max) / 2.0;
-    let cy  = (y_min + y_max) / 2.0;
+    let bh = border_mm / 2.0;
+    let hx = (x_max - x_min) / 2.0;
+    let cx = (x_min + x_max) / 2.0;
+    let cy = (y_min + y_max) / 2.0;
 
-    scene.create_geom(MjtGeom::mjGEOM_BOX,
+    scene.create_geom(
+        MjtGeom::mjGEOM_BOX,
         Some([hx / 1000.0, bh / 1000.0, hz]),
-        Some(to_global(cx, y_min + bh)), None, Some(border_color));
+        Some(to_global(cx, y_min + bh)),
+        None,
+        Some(border_color),
+    );
 
-    scene.create_geom(MjtGeom::mjGEOM_BOX,
+    scene.create_geom(
+        MjtGeom::mjGEOM_BOX,
         Some([hx / 1000.0, bh / 1000.0, hz]),
-        Some(to_global(cx, y_max - bh)), None, Some(border_color));
+        Some(to_global(cx, y_max - bh)),
+        None,
+        Some(border_color),
+    );
 
-    scene.create_geom(MjtGeom::mjGEOM_BOX,
+    scene.create_geom(
+        MjtGeom::mjGEOM_BOX,
         Some([bh / 1000.0, (y_max - y_min) / 2000.0, hz]),
-        Some(to_global(x_min + bh, cy)), None, Some(border_color));
+        Some(to_global(x_min + bh, cy)),
+        None,
+        Some(border_color),
+    );
 
-    scene.create_geom(MjtGeom::mjGEOM_BOX,
+    scene.create_geom(
+        MjtGeom::mjGEOM_BOX,
         Some([bh / 1000.0, (y_max - y_min) / 2000.0, hz]),
-        Some(to_global(x_max - bh, cy)), None, Some(border_color));
+        Some(to_global(x_max - bh, cy)),
+        None,
+        Some(border_color),
+    );
 }
 
 fn main() {
@@ -148,9 +169,13 @@ fn main() {
     // Run forward kinematics so all positions are up to date.
     data.step();
 
-    // Use the angled camera so perspective depth separates nested zones.
-    let cam_id = model.name_to_id(MjtObj::mjOBJ_CAMERA, "cam_zone_angled") as u32;
-    let camera = MjvCamera::new_fixed(cam_id);
+    // Use a free camera so we don't need to modify miza.xml with a custom camera.
+    // We position it to mimic the angled view, giving perspective depth to separate nested zones.
+    let mut camera = MjvCamera::new_free(&model);
+    camera.lookat = [0.850, 0.40, Z_FIELD];
+    camera.distance = 0.90;
+    camera.azimuth = 0.0;
+    camera.elevation = -75.0;
 
     // Build the offscreen renderer. 5 geom slots per zone (1 ghost fill + 4 border bars).
     let mut renderer = MjRenderer::builder()
