@@ -84,8 +84,6 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
         }       
     }
 
-    }
-
     /// Renders to `scene` the `position` as the ball's estimate.
     pub fn render_ball_estimate(scene: &mut MjvScene<M>, position: &XYZType, color: Option<RGBAType>) {
         let color = color.unwrap_or(DEFAULT_BALL_ESTIMATE_RGBA);
