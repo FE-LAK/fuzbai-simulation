@@ -19,7 +19,19 @@ pub const TERMINATION_Z_LEVEL: f64 = -0.5;
 
 /// MuJoCo geom IDs in the format (min_idx, max_idx).
 /// They map collision on each player to the rod index (Indices of this array represent rods).
-pub(crate) const ROD_COLLISION_PLAYER_IDS: [(usize, usize); 8] = [(26, 27), (29, 32), (34, 39), (41, 50), (52, 61), (63, 68), (70, 73), (75, 76)];
+/// Geom IDs are assigned depth-first in XML worldbody order (miza body first, then rods).
+/// miza has 27 geoms (IDs 0-26), so rod geoms begin at 27 (cylinder) + 28 (first player).
+/// Each rod body contains: 1 cylinder + 2*N player meshes.
+pub(crate) const ROD_COLLISION_PLAYER_IDS: [(usize, usize); 8] = [
+    (28, 29),  // goal r  (rod1: 1 cylinder at 27, 2 player meshes at 28–29)
+    (31, 34),  // def  r  (rod2: cylinder at 30, 4 player meshes at 31–34)
+    (36, 41),  // att  b  (rod3: cylinder at 35, 6 player meshes at 36–41)
+    (43, 52),  // off  r  (rod4: cylinder at 42, 10 player meshes at 43–52)
+    (54, 63),  // off  b  (rod5: cylinder at 53, 10 player meshes at 54–63)
+    (65, 70),  // att  r  (rod6: cylinder at 64, 6 player meshes at 65–70)
+    (72, 75),  // def  b  (rod7: cylinder at 71, 4 player meshes at 72–75)
+    (77, 78),  // goal b  (rod8: cylinder at 76, 2 player meshes at 77–78)
+];
 
 /// Global positions of the bodies holding each player geom
 pub(crate) const ROD_POSITIONS: [XYZType; 8] = [
@@ -97,7 +109,7 @@ pub(crate) const ROD_ROT_NOISE: f64 = 1.0 * 32.0 / 180.0;
 /// Creates a mapping of the individual player geom IDs to the correct rod index (from red to blue).
 /// This table also contains invalid mappings, which are mapped as -1 or are above the map's length.
 pub(crate) const fn create_geom_to_rod_map() -> [isize; ROD_COLLISION_PLAYER_IDS[ROD_COLLISION_PLAYER_IDS.len() - 1].1 + 1] {
-    let mut out: [isize; 77] = [-1; ROD_COLLISION_PLAYER_IDS[ROD_COLLISION_PLAYER_IDS.len() - 1].1 + 1];
+    let mut out: [isize; 79] = [-1; ROD_COLLISION_PLAYER_IDS[ROD_COLLISION_PLAYER_IDS.len() - 1].1 + 1];
     let mut rod_id = 0isize;
     let mut geom_id;
     let mut geom_id_max;
