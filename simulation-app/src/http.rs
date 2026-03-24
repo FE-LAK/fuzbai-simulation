@@ -1,22 +1,18 @@
-
-
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
+use actix_web::middleware::{NormalizePath, TrailingSlash};
+use actix_files::Files;
+use actix_web::web;
 use serde::{Serialize, Deserialize};
 use utoipa::{OpenApi, ToSchema};
-use actix_files::{Files};
-use actix_web::web;
 
-use actix_web::middleware::NormalizePath;
-use actix_web::middleware::TrailingSlash;
-
-use fuzbai_simulator::{PlayerTeam, mujoco_rs::util::LockUnpoison};
+use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
+use fuzbai_simulator::PlayerTeam;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 use tokio::sync::Notify;
+use std::time::Instant;
 
 use crate::COMPETITION_STATE;
 use crate::CompetitionStatus;
-
 
 
 /// How many (CPU) workers to create on each server (red and blue).
@@ -244,7 +240,7 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
     let [team_handle_0, team_handle_1] = team_states.map(|team_state| {
         let port = team_state.lock_unpoison().port;
         let www_dir = www_dir.clone();
-        let team_data = web::Data::new(team_state);
+        let team_data = web::Data::from(team_state);
         let server = HttpServer::new(move || {
             App::new()
                 .wrap(NormalizePath::new(TrailingSlash::Trim))
@@ -347,10 +343,10 @@ async fn get_docs() -> impl Responder {
     )
 )]
 #[get("/Camera/State")]
-async fn get_camera_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
+async fn get_camera_state(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let camera_state = {
         let mut lock = data.lock_unpoison();
-        update_team_frequency(&mut lock);
+        update_team_frequency(&mut *lock);
         lock.camera_state.clone()
     };
     HttpResponse::Ok().json(&camera_state)
@@ -366,7 +362,7 @@ async fn get_camera_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Respon
     )
 )]
 #[post("/Motors/SendCommand")]
-async fn send_command(data: web::Data<Arc<Mutex<TeamState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
+async fn send_command(data: web::Data<Mutex<TeamState>>, commands: web::Json<MotorCommands>) -> impl Responder {
     data.lock_unpoison().pending_commands = commands.into_inner().commands;
     HttpResponse::Ok()
 }
@@ -393,64 +389,57 @@ async fn reset_rotations() -> impl Responder {
     )
 )]
 #[get("/State")]
-async fn get_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
+async fn get_state(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let camera_state = {
         let mut lock = data.lock_unpoison();
-        update_team_frequency(&mut lock);
+        update_team_frequency(&mut *lock);
         lock.camera_state.clone()
     };
 
-    let rp = camera_state.camData[0].rod_position_calib;
-    let rr = camera_state.camData[0].rod_angle;
-
-    let ball_x = camera_state.camData[0].ball_x;
-    let ball_y = camera_state.camData[0].ball_y;
-    let ball_vx = camera_state.camData[0].ball_vx;
-    let ball_vy = camera_state.camData[0].ball_vy;
-    let ball_size = camera_state.camData[0].ball_size;
+    let cam = &camera_state.camData[0];
+    let rp = cam.rod_position_calib;
+    let rr = cam.rod_angle;
 
     let state_cam_data = StateCameraState {
-        rods: std::array::from_fn(|i|
-            StateCameraStateRod { Item1: rp[i], Item2: rr[i] },
-        ),
-        ball_x, ball_y, ball_vx, ball_vy, ball_size
+        rods: std::array::from_fn(|i| StateCameraStateRod { Item1: rp[i], Item2: rr[i] }),
+        ball_x: cam.ball_x,
+        ball_y: cam.ball_y,
+        ball_vx: cam.ball_vx,
+        ball_vy: cam.ball_vy,
+        ball_size: cam.ball_size,
     };
 
-    HttpResponse::Ok().json(
-        State {
-            motorsReady: true,
-            camData: [
-                state_cam_data.clone(),
-                state_cam_data
-            ],
-            drivesStates: StateDrivesState { drives: [
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[0] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[0] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[1] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[1] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[3] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[3] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[5] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[5] }},
-            ] }
-        }
-    )
+    // Rod indices matching the 4 physical drives (goalkeeper, defense, midfield, attack)
+    const DRIVE_ROD_INDICES: [usize; 4] = [0, 1, 3, 5];
+
+    HttpResponse::Ok().json(State {
+        motorsReady: true,
+        camData: [state_cam_data.clone(), state_cam_data],
+        drivesStates: StateDrivesState {
+            drives: DRIVE_ROD_INDICES.map(|i| StateDrivesStateDrive {
+                translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[i] },
+                rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[i] },
+            }),
+        },
+    })
 }
 
 #[get("/Competition")]
-async fn get_competition(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
+async fn get_competition(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let name = data.lock_unpoison().team_name.clone();
-    let response = CompetitionResponse {
+    HttpResponse::Ok().json(CompetitionResponse {
         state: 2,
         time: 0,
-        playerName: name.clone(),
-        scorePlayer: "".to_string(),
-        scoreFuzbAI: "".to_string(),
+        playerName: name,
+        scorePlayer: String::new(),
+        scoreFuzbAI: String::new(),
         level: 0,
         results: Vec::new(),
-    };
-
-    HttpResponse::Ok().json(response)
+    })
 }
 
-/// Updates the frequency and the last command time for the given team (locked via mutex).
-fn update_team_frequency(lock: &mut std::sync::MutexGuard<'_, TeamState>) {
+/// Updates the frequency and the last command time for the given team.
+fn update_team_frequency(lock: &mut TeamState) {
     lock.frequency_smooth_hz += CONNECTION_FREQUENCY_SMOOTHING * (
         1.0 / lock.last_command_time.elapsed().as_secs_f32() - lock.frequency_smooth_hz
     );
@@ -508,7 +497,7 @@ async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) 
     // Get scores for both teams. Due to the swapping feature, the index 0 may not be red.
     let (team_1_score, team1_color) = {
         let lock = team_states[0].lock_unpoison();
-        (lock.score, lock.team.clone())
+        (lock.score, lock.team)
     };
 
     let team_2_score = team_states[1].lock_unpoison().score;

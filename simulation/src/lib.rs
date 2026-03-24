@@ -51,7 +51,7 @@ static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjMo
 
 /* Enum definitions */
 #[cfg_attr(feature = "python-bindings", pyclass(eq, eq_int, module = "fuzbai_simulator"))]
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 #[repr(usize)] 
 /// Enumerates the two possible teams by color.
 pub enum PlayerTeam {
