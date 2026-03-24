@@ -91,11 +91,11 @@ fn main() {
 
     // Initialize the rest of Rust code
     let port_0 = args.next().map(|s| s.parse::<u16>().expect("invalid first team port input"))
-        .unwrap_or_else(DEFAULT_TEAM_1_PORT);
+        .unwrap_or(DEFAULT_TEAM_1_PORT);
     let port_1 = args.next().map(|s| s.parse::<u16>().expect("invalid second team port input"))
-        .unwrap_or_else(DEFAULT_TEAM_2_PORT);
+        .unwrap_or(DEFAULT_TEAM_2_PORT);
     let port_management = args.next().map(|s| s.parse::<u16>().expect("invalid management port input"))
-        .unwrap_or_else(DEFAULT_MANAGEMENT_PORT);
+        .unwrap_or(DEFAULT_MANAGEMENT_PORT);
 
     /* Initialize states for each team */
     let team_states = [

@@ -221,6 +221,23 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
     // Set of futures to join
     let mut join_set = tokio::task::JoinSet::new();
 
+    /* Management HTTP server creation */
+    let team_states_management_clone = team_states.clone();
+    let management_server = HttpServer::new(move || {
+        let json_config = web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES);
+        App::new()
+            .wrap(NormalizePath::new(TrailingSlash::Trim))
+            .app_data(json_config)
+            .app_data(web::Data::new(team_states_management_clone.clone()))
+    })
+    .workers(NUM_WORKERS_PER_MANAGEMENT)
+    .max_connections(1)
+    .bind(("127.0.0.1", management_port)).unwrap()  // localhost for security reasons
+    .run();
+
+    let management_handle = management_server.handle();
+    join_set.spawn(management_server);
+
     /* Team HTTP server creation */
     let factory = |team_state: Arc<Mutex<TeamState>>| {
             let port = team_state.lock_unpoison().port;
@@ -249,33 +266,19 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
         .run()
     };
 
-    let team_servers_handles: [_; 2] = team_states.clone().map(|team_state| {
+    let team_servers_handles: [_; 2] = team_states.map(|team_state| {
         let server = factory(team_state.clone());
         let handle = server.handle();
         join_set.spawn(server);
         handle
     });
 
-    /* Management HTTP server creation */
-    let management_server = HttpServer::new(|| {
-        let json_config = web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES);
-        App::new()
-            .wrap(NormalizePath::new(TrailingSlash::Trim))
-            .app_data(json_config)
-            .app_data(web::Data::new(team_states))
-    })
-    .workers(NUM_WORKERS_PER_MANAGEMENT)
-    .max_connections(1)
-    .bind(("127.0.0.1", management_port)).unwrap()  // localhost for security reasons
-    .run();
-
-    let management_handle = management_server.handle();
-    join_set.spawn(management_server);
-
+    // Merge management server handle and team server handles
+    let [team_handle_0, team_handle_1] = team_servers_handles;
     let server_handles = [
         management_handle,
-        team_servers_handles[0],
-        team_servers_handles[1]
+        team_handle_0,
+        team_handle_1,
     ];
 
     /* Shutdown logic */
