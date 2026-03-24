@@ -7,7 +7,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
-use crate::http::{DEFAULT_MANAGEMENT_PORT, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT};
+use clap::Parser;
+
+use crate::http::{
+    DEFAULT_MANAGEMENT_HOST, DEFAULT_MANAGEMENT_PORT,
+    DEFAULT_TEAM_HOST, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT,
+};
 
 mod http;
 
@@ -74,9 +79,33 @@ impl Default for CompetitionState {
     }
 }
 
+/// FuzbAI robotic foosball simulation application.
+#[derive(Parser)]
+#[command(about)]
+struct Cli {
+    /// Port for the first team server.
+    #[arg(long, default_value_t = DEFAULT_TEAM_1_PORT)]
+    team1_port: u16,
+
+    /// Port for the second team server.
+    #[arg(long, default_value_t = DEFAULT_TEAM_2_PORT)]
+    team2_port: u16,
+
+    /// Port for the management server.
+    #[arg(long, default_value_t = DEFAULT_MANAGEMENT_PORT)]
+    management_port: u16,
+
+    /// Host address for team servers.
+    #[arg(long, default_value = DEFAULT_TEAM_HOST)]
+    team_host: String,
+
+    /// Host address for the management server.
+    #[arg(long, default_value = DEFAULT_MANAGEMENT_HOST)]
+    management_host: String,
+}
+
 fn main() {
-    let mut args = std::env::args();
-    let _ = args.next().unwrap();  // program path;
+    let cli = Cli::parse();
 
     // Set the MuJoCo error handler (from C language) to catch internal MuJoCo crashes
     // and convert them to panics
@@ -89,13 +118,12 @@ fn main() {
         *mju_user_error = Some(handle_mujoco_error)
     };
 
-    // Initialize the rest of Rust code
-    let port_0 = args.next().map(|s| s.parse::<u16>().expect("invalid first team port input"))
-        .unwrap_or(DEFAULT_TEAM_1_PORT);
-    let port_1 = args.next().map(|s| s.parse::<u16>().expect("invalid second team port input"))
-        .unwrap_or(DEFAULT_TEAM_2_PORT);
-    let port_management = args.next().map(|s| s.parse::<u16>().expect("invalid management port input"))
-        .unwrap_or(DEFAULT_MANAGEMENT_PORT);
+    /* Extract CLI configuration */
+    let port_0 = cli.team1_port;
+    let port_1 = cli.team2_port;
+    let port_management = cli.management_port;
+    let team_host = cli.team_host;
+    let management_host = cli.management_host;
 
     /* Initialize states for each team */
     let team_states = [
@@ -127,6 +155,7 @@ fn main() {
                 .unwrap();
             runtime.block_on(http::http_task(
                 states_clone, port_management,
+                &team_host, &management_host,
                 shutdown_notify_clone
             ));
     }).unwrap();

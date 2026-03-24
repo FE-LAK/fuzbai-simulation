@@ -2,14 +2,17 @@ use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
 use actix_web::middleware::{NormalizePath, TrailingSlash};
 use actix_files::Files;
 use actix_web::web;
+
 use serde::{Serialize, Deserialize};
 use utoipa::{OpenApi, ToSchema};
 
 use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 use fuzbai_simulator::PlayerTeam;
+
 use std::sync::{Arc, Mutex};
-use tokio::sync::Notify;
 use std::time::Instant;
+
+use tokio::sync::Notify;
 
 use crate::COMPETITION_STATE;
 use crate::CompetitionStatus;
@@ -19,16 +22,24 @@ use crate::CompetitionStatus;
 /// A single worker will contain a new single-threaded tokio runtime in
 /// which tasks will be spawned.
 const NUM_WORKERS_PER_SERVER: usize = 3;
+/// Maximum concurrent connections per team server.
+const MAX_CONNECTIONS_PER_SERVER: usize = 10;
 
 /// The default port for the (originally) red team.
 pub(crate) const DEFAULT_TEAM_1_PORT: u16 = 8080;
 /// The default port for the (originally) blue team.
 pub(crate) const DEFAULT_TEAM_2_PORT: u16 = 8081;
+/// The default host for team servers.
+pub(crate) const DEFAULT_TEAM_HOST: &str = "0.0.0.0";
 
 /// How many (CPU) workers to create on the management server.
 const NUM_WORKERS_PER_MANAGEMENT: usize = 1;
+/// Maximum concurrent connections on the management server.
+const MAX_CONNECTIONS_MANAGEMENT: usize = 5;
 /// The default port used for management of the competition.
 pub(crate) const DEFAULT_MANAGEMENT_PORT: u16 = 8000;
+/// The default host for the management server.
+pub(crate) const DEFAULT_MANAGEMENT_HOST: &str = "127.0.0.1";
 
 /// The smoothing factor for the action execution frequency (first order filter).
 const CONNECTION_FREQUENCY_SMOOTHING: f32 = 0.1;
@@ -200,7 +211,13 @@ pub struct ResetResponse {
 )]
 pub struct ApiDoc;
 
-pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port: u16, shutdown_notify: Arc<Notify>) {
+pub async fn http_task(
+    team_states: [Arc<Mutex<TeamState>>; 2],
+    management_port: u16,
+    team_host: &str,
+    management_host: &str,
+    shutdown_notify: Arc<Notify>,
+) {
     // Try to obtain the www/ path next to the executable.
     // When the www/ does not exist next to the executable,
     // search the current working directory.
@@ -229,8 +246,8 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
             .service(competition_status)
     })
     .workers(NUM_WORKERS_PER_MANAGEMENT)
-    .max_connections(1)
-    .bind(("127.0.0.1", management_port)).unwrap()  // localhost for security reasons
+    .max_connections(MAX_CONNECTIONS_MANAGEMENT)
+    .bind((management_host, management_port)).unwrap()
     .run();
 
     let management_handle = management_server.handle();
@@ -259,8 +276,8 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
                 )
         })
         .workers(NUM_WORKERS_PER_SERVER)
-        .max_connections(10)
-        .bind(("0.0.0.0", port)).unwrap()
+        .max_connections(MAX_CONNECTIONS_PER_SERVER)
+        .bind((team_host, port)).unwrap()
         .run();
 
         let handle = server.handle();
