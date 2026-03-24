@@ -218,17 +218,19 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
         .unwrap_or_else(|| std::path::PathBuf::from("./www/"));
 
 
-    // Set of futures to join
     let mut join_set = tokio::task::JoinSet::new();
 
     /* Management HTTP server creation */
-    let team_states_management_clone = team_states.clone();
+    let management_data = web::Data::new(team_states.clone());
     let management_server = HttpServer::new(move || {
-        let json_config = web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES);
         App::new()
             .wrap(NormalizePath::new(TrailingSlash::Trim))
-            .app_data(json_config)
-            .app_data(web::Data::new(team_states_management_clone.clone()))
+            .app_data(web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES))
+            .app_data(management_data.clone())
+            .service(start_game)
+            .service(pause_game)
+            .service(reset_game)
+            .service(competition_status)
     })
     .workers(NUM_WORKERS_PER_MANAGEMENT)
     .max_connections(1)
@@ -239,15 +241,15 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
     join_set.spawn(management_server);
 
     /* Team HTTP server creation */
-    let factory = |team_state: Arc<Mutex<TeamState>>| {
-            let port = team_state.lock_unpoison().port;
-            let www_dir = www_dir.clone();
-            HttpServer::new(move || {
-            let json_config = web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES);
+    let [team_handle_0, team_handle_1] = team_states.map(|team_state| {
+        let port = team_state.lock_unpoison().port;
+        let www_dir = www_dir.clone();
+        let team_data = web::Data::new(team_state);
+        let server = HttpServer::new(move || {
             App::new()
                 .wrap(NormalizePath::new(TrailingSlash::Trim))
-                .app_data(json_config)
-                .app_data(web::Data::new(team_state.clone()))
+                .app_data(web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES))
+                .app_data(team_data.clone())
                 .service(get_openapi)
                 .service(get_docs)
                 .service(get_camera_state)
@@ -263,23 +265,14 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port:
         .workers(NUM_WORKERS_PER_SERVER)
         .max_connections(10)
         .bind(("0.0.0.0", port)).unwrap()
-        .run()
-    };
+        .run();
 
-    let team_servers_handles: [_; 2] = team_states.map(|team_state| {
-        let server = factory(team_state.clone());
         let handle = server.handle();
         join_set.spawn(server);
         handle
     });
 
-    // Merge management server handle and team server handles
-    let [team_handle_0, team_handle_1] = team_servers_handles;
-    let server_handles = [
-        management_handle,
-        team_handle_0,
-        team_handle_1,
-    ];
+    let server_handles = [management_handle, team_handle_0, team_handle_1];
 
     /* Shutdown logic */
     // Wait for the viewer to exit.
@@ -471,17 +464,17 @@ fn update_team_frequency(lock: &mut std::sync::MutexGuard<'_, TeamState>) {
 
 #[post("/start")]
 async fn start_game() -> impl Responder {
-    HttpResponse::Ok().json("{status: \"ok\"}")
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
 #[post("/pause")]
 async fn pause_game() -> impl Responder {
-    HttpResponse::Ok().json("{status: \"ok\"}")
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
 #[post("/reset")]
 async fn reset_game() -> impl Responder {
-    HttpResponse::Ok().json("{status: \"ok\"}")
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
 
@@ -498,7 +491,7 @@ async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) 
 
     // Process global state
     let (status, gametime) = {
-        let mut lock = COMPETITION_STATE.lock_unpoison();
+        let lock = COMPETITION_STATE.lock_unpoison();
         match &lock.status {
             CompetitionStatus::Running(timer) => {  // Match is running
                 ("running", timer.elapsed().as_secs_f32())
