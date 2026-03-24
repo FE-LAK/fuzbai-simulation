@@ -7,6 +7,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
+use crate::http::{DEFAULT_MANAGEMENT_PORT, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT};
+
 mod http;
 
 const COMPETITION_DURATION_SECS: u64 = 120;
@@ -88,15 +90,15 @@ fn main() {
     };
 
     // Initialize the rest of Rust code
-    let port_0 = args.next()
-        .unwrap_or_else(|| "8080".into())
-        .parse::<u16>().expect("passed team 1 port was invalid");
-    let port_1 = args.next()
-        .unwrap_or_else(|| "8081".into())
-        .parse::<u16>().expect("passed team 2 port was invalid");
+    let port_0 = args.next().map(|s| s.parse::<u16>().expect("invalid first team port input"))
+        .unwrap_or_else(DEFAULT_TEAM_1_PORT);
+    let port_1 = args.next().map(|s| s.parse::<u16>().expect("invalid second team port input"))
+        .unwrap_or_else(DEFAULT_TEAM_2_PORT);
+    let port_management = args.next().map(|s| s.parse::<u16>().expect("invalid management port input"))
+        .unwrap_or_else(DEFAULT_MANAGEMENT_PORT);
 
     /* Initialize states for each team */
-    let states = [
+    let team_states = [
         Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new(),
@@ -110,7 +112,7 @@ fn main() {
     ];
 
     /* Initialize tokio runtime and with it, the HTTP server */
-    let states_clone = states.clone();
+    let states_clone = team_states.clone();
 
     // Notification to wake the HTTP task, so that it can trigger a shutdown.
     let shutdown_notify = Arc::new(Notify::new());
@@ -123,8 +125,10 @@ fn main() {
                 .enable_all()
                 .build()
                 .unwrap();
-
-            runtime.block_on(http::http_task(states_clone, shutdown_notify_clone));
+            runtime.block_on(http::http_task(
+                states_clone, port_management,
+                shutdown_notify_clone
+            ));
     }).unwrap();
 
     /* Initialize simulation */
@@ -149,7 +153,7 @@ fn main() {
     // separately.
     let mut sim = sim_factory(true);
     // Start physics in another thread
-    let states_clone = states.clone();
+    let states_clone = team_states.clone();
     let sim_thread = std::thread::Builder::new()
         .name("simulation".into())
         .spawn(move || {
@@ -222,7 +226,7 @@ fn main() {
                 ui.label("Port");
                 ui.label("Team");
                 ui.end_row();
-                for state_mutex in &states {
+                for state_mutex in &team_states {
 
                     // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
                     let (team_string, port_string, mut builtin, frequency_string) = {
@@ -331,11 +335,11 @@ fn main() {
 
             // Red index is 0, when team is 0, otherwise it's 1
             let (red_index, team_0_name, team_0_score) = {
-                let lock = states[0].lock_unpoison();
+                let lock = team_states[0].lock_unpoison();
                 ((lock.team != PlayerTeam::Red) as usize, lock.team_name.clone(), lock.score)
             };
             let (team_1_name, team_1_score) = {
-                let lock = states[1].lock_unpoison();
+                let lock = team_states[1].lock_unpoison();
                 (lock.team_name.clone(), lock.score)
             };
 
@@ -355,7 +359,7 @@ fn main() {
                     ).changed() {
                         // It's faster to re-lock rather than keeping the mutex
                         // locked during egui processing.
-                        let mut lock = states[red_index].lock_unpoison();
+                        let mut lock = team_states[red_index].lock_unpoison();
                         lock.team_name = red_name;
                     }
 
@@ -389,7 +393,7 @@ fn main() {
                                 .font(FontId::proportional(30.0))
                                 .horizontal_align(Align::Max)
                         ).changed() {
-                            let mut lock = states[1 - red_index].lock_unpoison();
+                            let mut lock = team_states[1 - red_index].lock_unpoison();
                             lock.team_name = blue_name;
                         }
                         ui.label(RichText::new(blue_score.to_string()).font(FontId::proportional(24.0)));

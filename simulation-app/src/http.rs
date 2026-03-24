@@ -14,6 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::Notify;
 
+use crate::COMPETITION_STATE;
+use crate::CompetitionStatus;
+
 
 
 /// How many (CPU) workers to create on each server (red and blue).
@@ -21,8 +24,21 @@ use tokio::sync::Notify;
 /// which tasks will be spawned.
 const NUM_WORKERS_PER_SERVER: usize = 3;
 
+/// The default port for the (originally) red team.
+pub(crate) const DEFAULT_TEAM_1_PORT: u16 = 8080;
+/// The default port for the (originally) blue team.
+pub(crate) const DEFAULT_TEAM_2_PORT: u16 = 8081;
+
+/// How many (CPU) workers to create on the management server.
+const NUM_WORKERS_PER_MANAGEMENT: usize = 1;
+/// The default port used for management of the competition.
+pub(crate) const DEFAULT_MANAGEMENT_PORT: u16 = 8000;
+
 /// The smoothing factor for the action execution frequency (first order filter).
 const CONNECTION_FREQUENCY_SMOOTHING: f32 = 0.1;
+
+/// Maximum size of JSON payloads.
+const MAX_JSON_PAYLOAD_BYTES: usize = 5000;
 
 
 /// Data received from a single camera.
@@ -188,7 +204,7 @@ pub struct ResetResponse {
 )]
 pub struct ApiDoc;
 
-pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], shutdown_notify: Arc<Notify>) {
+pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], management_port: u16, shutdown_notify: Arc<Notify>) {
     // Try to obtain the www/ path next to the executable.
     // When the www/ does not exist next to the executable,
     // search the current working directory.
@@ -201,11 +217,16 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], shutdown_notify:
         })
         .unwrap_or_else(|| std::path::PathBuf::from("./www/"));
 
+
+    // Set of futures to join
+    let mut join_set = tokio::task::JoinSet::new();
+
+    /* Team HTTP server creation */
     let factory = |team_state: Arc<Mutex<TeamState>>| {
             let port = team_state.lock_unpoison().port;
             let www_dir = www_dir.clone();
             HttpServer::new(move || {
-            let json_config = web::JsonConfig::default().limit(5000);
+            let json_config = web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES);
             App::new()
                 .wrap(NormalizePath::new(TrailingSlash::Trim))
                 .app_data(json_config)
@@ -228,15 +249,36 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], shutdown_notify:
         .run()
     };
 
-    let mut join_set = tokio::task::JoinSet::new();
-
-    let server_handles = team_states.map(|state| {
-        let server = factory(state.clone());
+    let team_servers_handles: [_; 2] = team_states.clone().map(|team_state| {
+        let server = factory(team_state.clone());
         let handle = server.handle();
         join_set.spawn(server);
         handle
     });
 
+    /* Management HTTP server creation */
+    let management_server = HttpServer::new(|| {
+        let json_config = web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES);
+        App::new()
+            .wrap(NormalizePath::new(TrailingSlash::Trim))
+            .app_data(json_config)
+            .app_data(web::Data::new(team_states))
+    })
+    .workers(NUM_WORKERS_PER_MANAGEMENT)
+    .max_connections(1)
+    .bind(("127.0.0.1", management_port)).unwrap()  // localhost for security reasons
+    .run();
+
+    let management_handle = management_server.handle();
+    join_set.spawn(management_server);
+
+    let server_handles = [
+        management_handle,
+        team_servers_handles[0],
+        team_servers_handles[1]
+    ];
+
+    /* Shutdown logic */
     // Wait for the viewer to exit.
     shutdown_notify.notified().await;
     for handle in server_handles {
@@ -417,4 +459,71 @@ fn update_team_frequency(lock: &mut std::sync::MutexGuard<'_, TeamState>) {
         1.0 / lock.last_command_time.elapsed().as_secs_f32() - lock.frequency_smooth_hz
     );
     lock.last_command_time = Instant::now();
+}
+
+/********************************************************************************************/
+/*                                        MANAGEMENT                                        */
+/********************************************************************************************/
+// Handlers here are used only for controlling the simulation via a management dashboard.
+
+#[post("/start")]
+async fn start_game() -> impl Responder {
+    HttpResponse::Ok().json("{status: \"ok\"}")
+}
+
+#[post("/pause")]
+async fn pause_game() -> impl Responder {
+    HttpResponse::Ok().json("{status: \"ok\"}")
+}
+
+#[post("/reset")]
+async fn reset_game() -> impl Responder {
+    HttpResponse::Ok().json("{status: \"ok\"}")
+}
+
+
+/// Returns the status of the game and the elapsed time (if the game is running).
+#[get("/status")]
+async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) -> impl Responder {
+
+    #[derive(Serialize)]
+    struct ResponseCompetitionStatus {
+        status: &'static str,
+        score: [u16; 2],
+        gametime: f32
+    }
+
+    // Process global state
+    let (status, gametime) = {
+        let mut lock = COMPETITION_STATE.lock_unpoison();
+        match &lock.status {
+            CompetitionStatus::Running(timer) => {  // Match is running
+                ("running", timer.elapsed().as_secs_f32())
+            },
+            CompetitionStatus::Free => {  // Match is not running, but control is enabled
+                ("free", 0.0)
+            },
+            CompetitionStatus::Expired => {  // Match expired / stopped
+                ("waiting", 0.0)
+            }
+        }
+    };
+
+    // Get scores for both teams. Due to the swapping feature, the index 0 may not be red.
+    let (team_1_score, team1_color) = {
+        let lock = team_states[0].lock_unpoison();
+        (lock.score, lock.team.clone())
+    };
+
+    let team_2_score = team_states[1].lock_unpoison().score;
+
+    let score_red_blue = if team1_color == PlayerTeam::Red {
+        [team_1_score, team_2_score]
+    } else { [team_2_score, team_1_score] };
+
+    HttpResponse::Ok().json(
+        ResponseCompetitionStatus {
+            status, gametime, score: score_red_blue
+        }
+    )
 }
