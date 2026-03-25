@@ -18,8 +18,11 @@ pub enum CompetitionPending {
 pub enum CompetitionStatus {
     /// Timed match in progress since the given `Instant`.
     Running(Instant),
-    /// Match stopped or not yet started.
-    /// Wraps the time when the game ended (in seconds from start).
+    /// Match manually paused.
+    /// Wraps the elapsed time (in seconds) when the pause occurred.
+    Paused(u64),
+    /// Match time expired (timer ran out).
+    /// Wraps the total elapsed time (in seconds).
     Expired(u64),
     /// Untimed free play.
     Free,

@@ -258,6 +258,7 @@ fn main() {
                         if ui.button("Start").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.status = CompetitionStatus::Running(Instant::now());
+                            competition_state.pending.push_back(CompetitionPending::ResetScore);
                             competition_state.pending.push_back(CompetitionPending::ResetSimulation);
                         }
 
@@ -285,11 +286,11 @@ fn main() {
                         }
                         if ui.button("Pause").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
-                            competition_state.status = CompetitionStatus::Expired(timer.elapsed().as_secs());
+                            competition_state.status = CompetitionStatus::Paused(timer.elapsed().as_secs());
                         }
                     });
                 },
-                CompetitionStatus::Expired(elapsed_s) => {
+                CompetitionStatus::Paused(elapsed_s) => {
                     ui.horizontal(|ui| {
                         if ui.button("Resume").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
@@ -300,6 +301,14 @@ fn main() {
                                 competition_state.pending.push_back(CompetitionPending::ResetSimulation);
                             }
                         }
+                        if ui.button("Stop").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            competition_state.status = CompetitionStatus::Waiting;
+                        }
+                    });
+                },
+                CompetitionStatus::Expired(_) => {
+                    ui.horizontal(|ui| {
                         if ui.button("Stop").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.status = CompetitionStatus::Waiting;
@@ -447,7 +456,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                     }
                 }
             }
-            matches!(comp_state.status, CompetitionStatus::Expired(_)) ||
+            matches!(comp_state.status, CompetitionStatus::Paused(_)) ||
+                matches!(comp_state.status, CompetitionStatus::Expired(_)) ||
                 matches!(comp_state.status, CompetitionStatus::Waiting)
         };
 

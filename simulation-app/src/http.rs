@@ -480,15 +480,14 @@ async fn start_game() -> impl Responder {
     {
         let mut lock = COMPETITION_STATE.lock_unpoison();
         match lock.status {
-            CompetitionStatus::Expired(elapsed_s) => {
+            CompetitionStatus::Paused(elapsed_s) => {
                 // This substraction may panic if the elapsed_s is larger than the elapsed system time.
                 // This is not really possible in reality and even if it is, it will turn the panic into a HTTP
                 // server error. Thus this is safe.
-                lock.status = CompetitionStatus::Running(Instant::now() - Duration::from_secs(elapsed_s));  // start from the paused elapsed time
-                lock.pending.push_back(CompetitionPending::ResetScore);
+                lock.status = CompetitionStatus::Running(Instant::now() - Duration::from_secs(elapsed_s));  // resume from the paused elapsed time
                 lock.pending.push_back(CompetitionPending::ResetSimulation);
             },
-            CompetitionStatus::Waiting | CompetitionStatus::Free => {
+            CompetitionStatus::Waiting | CompetitionStatus::Free | CompetitionStatus::Expired(_) => {
                 lock.status = CompetitionStatus::Running(Instant::now());
                 lock.pending.push_back(CompetitionPending::ResetScore);
                 lock.pending.push_back(CompetitionPending::ResetSimulation);
@@ -505,7 +504,7 @@ async fn pause_game() -> impl Responder {
     {
         let mut lock = COMPETITION_STATE.lock_unpoison();
         if let CompetitionStatus::Running(timer) = lock.status {
-            lock.status = CompetitionStatus::Expired(timer.elapsed().as_secs());
+            lock.status = CompetitionStatus::Paused(timer.elapsed().as_secs());
         }
     }
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
@@ -557,7 +556,10 @@ async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) 
             CompetitionStatus::Free => {  // Match is not running, but control is enabled
                 ("free", 0.0)
             },
-            CompetitionStatus::Expired(elapsed_s) => {  // Match expired / stopped
+            CompetitionStatus::Paused(elapsed_s) => {  // Match manually paused
+                ("paused", *elapsed_s as f32)
+            },
+            CompetitionStatus::Expired(elapsed_s) => {  // Match time expired
                 ("expired", *elapsed_s as f32)
             },
             CompetitionStatus::Waiting => {  // Match expired and waiting to start
