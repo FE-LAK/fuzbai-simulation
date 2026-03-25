@@ -4,6 +4,7 @@ use std::time::Instant;
 
 /// Global competition state shared between the simulation thread, GUI, and HTTP handlers.
 pub static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
+pub const COMPETITION_DURATION_SECS: u64 = 120;
 
 /// Actions queued for the simulation thread to execute on the next tick.
 pub enum CompetitionPending {
@@ -18,9 +19,12 @@ pub enum CompetitionStatus {
     /// Timed match in progress since the given `Instant`.
     Running(Instant),
     /// Match stopped or not yet started.
-    Expired,
+    /// Wraps the time when the game ended (in seconds from start).
+    Expired(u64),
     /// Untimed free play.
     Free,
+    // Waiting for the gane to start
+    Waiting,
 }
 
 /// Mutable competition state protected by `COMPETITION_STATE`.
@@ -29,15 +33,8 @@ pub struct CompetitionState {
     pub pending: VecDeque<CompetitionPending>,
 }
 
-impl CompetitionState {
-    /// Returns whether the competition time has ended.
-    pub fn expired(&self) -> bool {
-        self.status == CompetitionStatus::Expired
-    }
-}
-
 impl Default for CompetitionState {
     fn default() -> Self {
-        Self { status: CompetitionStatus::Expired, pending: VecDeque::new() }
+        Self { status: CompetitionStatus::Waiting, pending: VecDeque::new() }
     }
 }

@@ -3,14 +3,14 @@ use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
 use clap::Parser;
 
-use crate::competition::{COMPETITION_STATE, CompetitionPending, CompetitionStatus};
+use crate::competition::{COMPETITION_DURATION_SECS, COMPETITION_STATE, CompetitionPending, CompetitionStatus};
 use crate::http::{
     DEFAULT_MANAGEMENT_HOST, DEFAULT_MANAGEMENT_PORT,
     DEFAULT_TEAM_HOST, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT,
@@ -19,7 +19,6 @@ use crate::http::{
 mod competition;
 mod http;
 
-const COMPETITION_DURATION_SECS: u64 = 120;
 const EXPIRED_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
 // Define global linkage for a MuJoCo error handler. This is redefined (from MuJoCo-rs's implementation)
@@ -210,7 +209,7 @@ fn main() {
                 CompetitionStatus::Running(timer) => {
                     let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(timer.elapsed().as_secs());
                     if total_rem_s == 0 {
-                        comp_state.status = CompetitionStatus::Expired;
+                        comp_state.status = CompetitionStatus::Expired(COMPETITION_DURATION_SECS);
                     }
                     (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
                 },
@@ -254,12 +253,11 @@ fn main() {
 
             ui.separator();
             match status {
-                CompetitionStatus::Expired | CompetitionStatus::Free => {
+                CompetitionStatus::Free | CompetitionStatus::Waiting => {
                     ui.horizontal(|ui| {
                         if ui.button("Start").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.status = CompetitionStatus::Running(Instant::now());
-                            competition_state.pending.push_back(CompetitionPending::ResetScore);
                             competition_state.pending.push_back(CompetitionPending::ResetSimulation);
                         }
 
@@ -278,16 +276,36 @@ fn main() {
                             COMPETITION_STATE.lock_unpoison().pending.push_back(CompetitionPending::SwapTeams);
                         }
                     });
-                }
-
-                CompetitionStatus::Running(_) => {
+                },
+                CompetitionStatus::Running(timer) => {
                     ui.horizontal(|ui| {
                         if ui.button("Stop").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
-                            competition_state.status = CompetitionStatus::Expired;
+                            competition_state.status = CompetitionStatus::Waiting;
+                        }
+                        if ui.button("Pause").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            competition_state.status = CompetitionStatus::Expired(timer.elapsed().as_secs());
                         }
                     });
-                }
+                },
+                CompetitionStatus::Expired(elapsed_s) => {
+                    ui.horizontal(|ui| {
+                        if ui.button("Resume").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            let maybe_instant = Instant::now().checked_sub(Duration::from_secs(elapsed_s));
+                            // A "just-in-case" check, which shoulnd't be possible realistically, however we have no panic guards here
+                            if let Some(instant) = maybe_instant {
+                                competition_state.status = CompetitionStatus::Running(instant);
+                                competition_state.pending.push_back(CompetitionPending::ResetSimulation);
+                            }
+                        }
+                        if ui.button("Stop").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            competition_state.status = CompetitionStatus::Waiting;
+                        }
+                    });
+                } 
             }
         });
 
@@ -429,7 +447,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                     }
                 }
             }
-            comp_state.expired()
+            matches!(comp_state.status, CompetitionStatus::Expired(_)) ||
+                matches!(comp_state.status, CompetitionStatus::Waiting)
         };
 
         if competition_expired {

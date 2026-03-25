@@ -9,8 +9,8 @@ use utoipa::{OpenApi, ToSchema};
 use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 use fuzbai_simulator::PlayerTeam;
 
+use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 use tokio::sync::Notify;
 
@@ -477,26 +477,44 @@ fn update_team_frequency(lock: &mut TeamState) {
 
 #[post("/start")]
 async fn start_game() -> impl Responder {
-    let mut comp_state = COMPETITION_STATE.lock_unpoison();
-    if matches!(comp_state.status, CompetitionStatus::Running(_)) {
-        return HttpResponse::Ok().json(serde_json::json!({"status": "ok"}));
+    {
+        let mut lock = COMPETITION_STATE.lock_unpoison();
+        match lock.status {
+            CompetitionStatus::Expired(elapsed_s) => {
+                // This substraction may panic if the elapsed_s is larger than the elapsed system time.
+                // This is not really possible in reality and even if it is, it will turn the panic into a HTTP
+                // server error. Thus this is safe.
+                lock.status = CompetitionStatus::Running(Instant::now() - Duration::from_secs(elapsed_s));  // start from the paused elapsed time
+                lock.pending.push_back(CompetitionPending::ResetScore);
+                lock.pending.push_back(CompetitionPending::ResetSimulation);
+            },
+            CompetitionStatus::Waiting | CompetitionStatus::Free => {
+                lock.status = CompetitionStatus::Running(Instant::now());
+                lock.pending.push_back(CompetitionPending::ResetScore);
+                lock.pending.push_back(CompetitionPending::ResetSimulation);
+            },
+            CompetitionStatus::Running(_) => {}  // already running, nothing to do.
+        }
     }
-    comp_state.status = CompetitionStatus::Running(Instant::now());
-    comp_state.pending.push_back(CompetitionPending::ResetScore);
-    comp_state.pending.push_back(CompetitionPending::ResetSimulation);
+
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
 #[post("/pause")]
 async fn pause_game() -> impl Responder {
-    COMPETITION_STATE.lock_unpoison().status = CompetitionStatus::Expired;
+    {
+        let mut lock = COMPETITION_STATE.lock_unpoison();
+        if let CompetitionStatus::Running(timer) = lock.status {
+            lock.status = CompetitionStatus::Expired(timer.elapsed().as_secs());
+        }
+    }
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
 #[post("/reset")]
 async fn reset_game() -> impl Responder {
     let mut comp_state = COMPETITION_STATE.lock_unpoison();
-    comp_state.status = CompetitionStatus::Expired;
+    comp_state.status = CompetitionStatus::Waiting;
     comp_state.pending.push_back(CompetitionPending::ResetScore);
     comp_state.pending.push_back(CompetitionPending::ResetSimulation);
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
@@ -539,7 +557,10 @@ async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) 
             CompetitionStatus::Free => {  // Match is not running, but control is enabled
                 ("free", 0.0)
             },
-            CompetitionStatus::Expired => {  // Match expired / stopped
+            CompetitionStatus::Expired(elapsed_s) => {  // Match expired / stopped
+                ("expired", *elapsed_s as f32)
+            },
+            CompetitionStatus::Waiting => {  // Match expired and waiting to start
                 ("waiting", 0.0)
             }
         }
