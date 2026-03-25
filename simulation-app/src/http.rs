@@ -1,7 +1,7 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
 use actix_web::middleware::{NormalizePath, TrailingSlash};
-use actix_files::Files;
 use actix_web::web;
+use actix_files::Files;
 
 use serde::{Serialize, Deserialize};
 use utoipa::{OpenApi, ToSchema};
@@ -14,9 +14,7 @@ use std::time::Instant;
 
 use tokio::sync::Notify;
 
-use crate::COMPETITION_STATE;
-use crate::CompetitionStatus;
-
+use crate::competition::{COMPETITION_STATE, CompetitionPending, CompetitionStatus};
 
 /// How many (CPU) workers to create on each server (red and blue).
 /// A single worker will contain a new single-threaded tokio runtime in
@@ -106,6 +104,12 @@ pub struct MotorCommand {
 #[allow(non_snake_case)]
 pub struct MotorCommands {
     pub commands: Vec<MotorCommand>
+}
+
+#[derive(Deserialize)]
+pub struct SetTeamsRequest {
+    pub red: String,
+    pub blue: String,
 }
 
 
@@ -243,6 +247,7 @@ pub async fn http_task(
             .service(start_game)
             .service(pause_game)
             .service(reset_game)
+            .service(set_teams)
             .service(competition_status)
     })
     .workers(NUM_WORKERS_PER_MANAGEMENT)
@@ -470,16 +475,43 @@ fn update_team_frequency(lock: &mut TeamState) {
 
 #[post("/start")]
 async fn start_game() -> impl Responder {
+    let mut comp_state = COMPETITION_STATE.lock_unpoison();
+    if matches!(comp_state.status, CompetitionStatus::Running(_)) {
+        return HttpResponse::Ok().json(serde_json::json!({"status": "ok"}));
+    }
+    comp_state.status = CompetitionStatus::Running(Instant::now());
+    comp_state.pending.push_back(CompetitionPending::ResetScore);
+    comp_state.pending.push_back(CompetitionPending::ResetSimulation);
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
 #[post("/pause")]
 async fn pause_game() -> impl Responder {
+    COMPETITION_STATE.lock_unpoison().status = CompetitionStatus::Expired;
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
 #[post("/reset")]
 async fn reset_game() -> impl Responder {
+    let mut comp_state = COMPETITION_STATE.lock_unpoison();
+    comp_state.status = CompetitionStatus::Expired;
+    comp_state.pending.push_back(CompetitionPending::ResetScore);
+    comp_state.pending.push_back(CompetitionPending::ResetSimulation);
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+#[post("/teams")]
+async fn set_teams(
+    team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>,
+    body: web::Json<SetTeamsRequest>,
+) -> impl Responder {
+    for state in team_states.iter() {
+        let mut lock = state.lock_unpoison();
+        match lock.team {
+            PlayerTeam::Red => lock.team_name = body.red.clone(),
+            PlayerTeam::Blue => lock.team_name = body.blue.clone(),
+        }
+    }
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 

@@ -1,29 +1,26 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 
-use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
 use clap::Parser;
 
+use crate::competition::{COMPETITION_STATE, CompetitionPending, CompetitionStatus};
 use crate::http::{
     DEFAULT_MANAGEMENT_HOST, DEFAULT_MANAGEMENT_PORT,
     DEFAULT_TEAM_HOST, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT,
 };
 
+mod competition;
 mod http;
 
 const COMPETITION_DURATION_SECS: u64 = 120;
 const EXPIRED_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
-
-static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
-
-/// Timeout, in seconds, after which the frequency display should consider the connection
-/// inactive.
-const CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS: u64 = 1;
 
 // Define global linkage for a MuJoCo error handler. This is redefined (from MuJoCo-rs's implementation)
 // to allow C-unwind, so panics can be triggered inside the handler.
@@ -48,36 +45,9 @@ unsafe extern "C-unwind" fn handle_mujoco_error(c_error_message: *const std::os:
     };
 }
 
-enum CompetitionPending {
-    ResetScore,
-    ResetSimulation,
-    SwapTeams,
-}
-
-#[derive(PartialEq, Clone)]
-enum CompetitionStatus {
-    Running(Instant),
-    Expired,
-    Free
-}
-
-struct CompetitionState {
-    status: CompetitionStatus,
-    pending: VecDeque<CompetitionPending>,
-}
-
-impl CompetitionState {
-    /// Returns whether the competition time has ended.
-    fn expired(&self) -> bool {
-        self.status == CompetitionStatus::Expired
-    }
-}
-
-impl Default for CompetitionState {
-    fn default() -> Self {
-        Self { status: CompetitionStatus::Expired, pending: VecDeque::new() }
-    }
-}
+/// Timeout, in seconds, after which the frequency display should consider the connection
+/// inactive.
+const CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS: u64 = 1;
 
 /// FuzbAI robotic foosball simulation application.
 #[derive(Parser)]
