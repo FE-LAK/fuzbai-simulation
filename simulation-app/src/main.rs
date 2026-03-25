@@ -111,6 +111,12 @@ fn main() {
     /* Initialize tokio runtime and with it, the HTTP server */
     let states_clone = team_states.clone();
 
+    // Clone host strings and convert ports to strings before they are moved into the tokio thread.
+    let team_host_ui = team_host.clone();
+    let management_host_ui = management_host.clone();
+    let management_port_str = port_management.to_string();
+    let team_port_strings = [port_0.to_string(), port_1.to_string()];
+
     // Notification to wake the HTTP task, so that it can trigger a shutdown.
     let shutdown_notify = Arc::new(Notify::new());
     let shutdown_notify_clone = shutdown_notify.clone();
@@ -219,29 +225,41 @@ fn main() {
 
         // Control panel window
         egui::Window::new("FuzbAI Competition").show(ctx, |ui| {
+            ui.heading("Management");
+            egui::Grid::new("management_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Host");
+                ui.label("Port");
+                ui.end_row();
+                ui.label(&management_host_ui);
+                ui.label(&management_port_str);
+                ui.end_row();
+            });
+
+            ui.separator();
             ui.heading("Teams");
-            egui::Grid::new("team_grid").num_columns(4).show(ui, |ui| {
+            egui::Grid::new("team_grid").num_columns(5).show(ui, |ui| {
+                ui.label("Host");
                 ui.label("Port");
                 ui.label("Team");
                 ui.end_row();
-                for state_mutex in &team_states {
+                for (state_mutex, port_str) in team_states.iter().zip(&team_port_strings) {
 
                     // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
-                    let (team_string, port_string, mut builtin, frequency_string) = {
+                    let (team_string, mut builtin, frequency_string) = {
                         let team_state = state_mutex.lock_unpoison();
                         let team = &team_state.team;
                         let team_name = &team_state.team_name;
 
-                        let port_string = team_state.port.to_string();
                         let team_string = format!("{team_name} ({team:?})");
                         let frequency_string =
                         if team_state.last_command_time.elapsed().as_secs() < CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS {
                             format!("{:.2} Hz", team_state.frequency_smooth_hz)
                         } else { "Inactive".to_string() };
-                        (team_string, port_string, team_state.builtin, frequency_string)
+                        (team_string, team_state.builtin, frequency_string)
                     };
 
-                    ui.label(port_string);
+                    ui.label(&team_host_ui);
+                    ui.label(port_str);
                     ui.label(team_string);
                     if ui.checkbox(&mut builtin, "built-in").clicked() {
                         state_mutex.lock_unpoison().builtin = builtin;
