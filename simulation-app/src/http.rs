@@ -487,7 +487,7 @@ async fn start_game() -> impl Responder {
                 lock.status = CompetitionStatus::Running(Instant::now() - Duration::from_secs(elapsed_s));  // resume from the paused elapsed time
                 lock.pending.push_back(CompetitionPending::ResetSimulation);
             },
-            CompetitionStatus::Waiting | CompetitionStatus::Free | CompetitionStatus::Expired(_) => {
+            CompetitionStatus::Waiting | CompetitionStatus::Free | CompetitionStatus::Finished(_) => {
                 lock.status = CompetitionStatus::Running(Instant::now());
                 lock.pending.push_back(CompetitionPending::ResetScore);
                 lock.pending.push_back(CompetitionPending::ResetSimulation);
@@ -559,8 +559,8 @@ async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) 
             CompetitionStatus::Paused(elapsed_s) => {  // Match manually paused
                 ("paused", *elapsed_s as f32)
             },
-            CompetitionStatus::Expired(elapsed_s) => {  // Match time expired
-                ("expired", *elapsed_s as f32)
+            CompetitionStatus::Finished(elapsed_s) => {  // Game finished due to timeout or score reached
+                ("finished", *elapsed_s as f32)
             },
             CompetitionStatus::Waiting => {  // Match expired and waiting to start
                 ("waiting", 0.0)

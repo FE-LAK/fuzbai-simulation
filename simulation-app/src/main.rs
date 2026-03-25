@@ -215,7 +215,7 @@ fn main() {
                 CompetitionStatus::Running(timer) => {
                     let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(timer.elapsed().as_secs());
                     if total_rem_s == 0 {
-                        comp_state.status = CompetitionStatus::Expired(COMPETITION_DURATION_SECS);
+                        comp_state.status = CompetitionStatus::Finished(COMPETITION_DURATION_SECS);
                     }
                     (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
                 },
@@ -325,7 +325,7 @@ fn main() {
                         }
                     });
                 },
-                CompetitionStatus::Expired(_) => {
+                CompetitionStatus::Finished(_) => {
                     ui.horizontal(|ui| {
                         if ui.button("Stop").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
@@ -475,7 +475,7 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                 }
             }
             matches!(comp_state.status, CompetitionStatus::Paused(_)) ||
-                matches!(comp_state.status, CompetitionStatus::Expired(_)) ||
+                matches!(comp_state.status, CompetitionStatus::Finished(_)) ||
                 matches!(comp_state.status, CompetitionStatus::Waiting)
         };
 

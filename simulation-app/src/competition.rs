@@ -23,7 +23,7 @@ pub enum CompetitionStatus {
     Paused(u64),
     /// Match time expired (timer ran out).
     /// Wraps the total elapsed time (in seconds).
-    Expired(u64),
+    Finished(u64),
     /// Untimed free play.
     Free,
     // Waiting for the gane to start
