@@ -9,8 +9,8 @@ use utoipa::{OpenApi, ToSchema};
 use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 use fuzbai_simulator::PlayerTeam;
 
-use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tokio::sync::Notify;
 
@@ -480,11 +480,11 @@ async fn start_game() -> impl Responder {
     {
         let mut lock = COMPETITION_STATE.lock_unpoison();
         match lock.status {
-            CompetitionStatus::Paused(elapsed_s) => {
-                // This substraction may panic if the elapsed_s is larger than the elapsed system time.
+            CompetitionStatus::Paused(elapsed) => {
+                // This subtraction may panic if the elapsed is larger than the elapsed system time.
                 // This is not really possible in reality and even if it is, it will turn the panic into a HTTP
                 // server error. Thus this is safe.
-                lock.status = CompetitionStatus::Running(Instant::now() - Duration::from_secs(elapsed_s));  // resume from the paused elapsed time
+                lock.status = CompetitionStatus::Running(Instant::now() - elapsed);  // resume from the paused elapsed time
                 lock.pending.push_back(CompetitionPending::ResetSimulation);
             },
             CompetitionStatus::Waiting | CompetitionStatus::Free | CompetitionStatus::Finished(_) => {
@@ -504,7 +504,7 @@ async fn pause_game() -> impl Responder {
     {
         let mut lock = COMPETITION_STATE.lock_unpoison();
         if let CompetitionStatus::Running(timer) = lock.status {
-            lock.status = CompetitionStatus::Paused(timer.elapsed().as_secs());
+            lock.status = CompetitionStatus::Paused(timer.elapsed());
         }
     }
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
@@ -552,11 +552,11 @@ async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) 
             CompetitionStatus::Free => {  // Match is not running, but control is enabled
                 ("free", 0.0)
             },
-            CompetitionStatus::Paused(elapsed_s) => {  // Match manually paused
-                ("paused", *elapsed_s as f32)
+            CompetitionStatus::Paused(elapsed) => {  // Match manually paused
+                ("paused", elapsed.as_secs_f32())
             },
-            CompetitionStatus::Finished(elapsed_s) => {  // Game finished due to timeout or score reached
-                ("finished", *elapsed_s as f32)
+            CompetitionStatus::Finished(elapsed) => {  // Game finished due to timeout or score reached
+                ("finished", elapsed.as_secs_f32())
             },
             CompetitionStatus::Waiting => {  // Match expired and waiting to start
                 ("waiting", 0.0)

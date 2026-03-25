@@ -1,6 +1,6 @@
+use std::time::{Duration, Instant};
 use std::sync::{LazyLock, Mutex};
 use std::collections::VecDeque;
-use std::time::Instant;
 
 /// Global competition state shared between the simulation thread, GUI, and HTTP handlers.
 pub static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
@@ -15,14 +15,14 @@ pub enum CompetitionPending {
 /// Current phase of the competition.
 #[derive(PartialEq, Clone)]
 pub enum CompetitionStatus {
-    /// Timed match in progress since the given `Instant`.
+    /// Timed match in progress since the given [`Instant`].
     Running(Instant),
     /// Match manually paused.
-    /// Wraps the elapsed time (in seconds) when the pause occurred.
-    Paused(u64),
+    /// Wraps the elapsed [`Duration`] when the pause occurred.
+    Paused(Duration),
     /// Match time expired (timer ran out).
-    /// Wraps the total elapsed time (in seconds).
-    Finished(u64),
+    /// Wraps the total elapsed [`Duration`].
+    Finished(Duration),
     /// Untimed free play.
     Free,
     /// Waiting for the game to start.

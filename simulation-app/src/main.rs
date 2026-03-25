@@ -3,7 +3,7 @@ use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
@@ -213,10 +213,15 @@ fn main() {
             let mut comp_state = COMPETITION_STATE.lock_unpoison();
             match &comp_state.status {
                 CompetitionStatus::Running(timer) => {
-                    let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(timer.elapsed().as_secs());
+                    let elapsed = timer.elapsed();
+                    let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(elapsed.as_secs());
                     if total_rem_s == 0 {
-                        comp_state.status = CompetitionStatus::Finished(COMPETITION_DURATION_SECS);
+                        comp_state.status = CompetitionStatus::Finished(elapsed);
                     }
+                    (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
+                },
+                CompetitionStatus::Paused(elapsed) | CompetitionStatus::Finished(elapsed) => {
+                    let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(elapsed.as_secs());
                     (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
                 },
                 _ => (0, 0, comp_state.status.clone())
@@ -300,16 +305,16 @@ fn main() {
                         }
                         if ui.button("Pause").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
-                            competition_state.status = CompetitionStatus::Paused(timer.elapsed().as_secs());
+                            competition_state.status = CompetitionStatus::Paused(timer.elapsed());
                         }
                     });
                 },
-                CompetitionStatus::Paused(elapsed_s) => {
+                CompetitionStatus::Paused(elapsed) => {
                     ui.horizontal(|ui| {
                         if ui.button("Resume").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
-                            let maybe_instant = Instant::now().checked_sub(Duration::from_secs(elapsed_s));
-                            // A "just-in-case" check, which shoulnd't be possible realistically, however we have no panic guards here
+                            let maybe_instant = Instant::now().checked_sub(elapsed);
+                            // A "just-in-case" check, which shouldn't be possible realistically, however we have no panic guards here
                             if let Some(instant) = maybe_instant {
                                 competition_state.status = CompetitionStatus::Running(instant);
                                 competition_state.pending.push_back(CompetitionPending::ResetSimulation);
