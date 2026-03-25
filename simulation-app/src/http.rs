@@ -462,9 +462,11 @@ async fn get_competition(data: web::Data<Mutex<TeamState>>) -> impl Responder {
 
 /// Updates the frequency and the last command time for the given team.
 fn update_team_frequency(lock: &mut TeamState) {
-    lock.frequency_smooth_hz += CONNECTION_FREQUENCY_SMOOTHING * (
-        1.0 / lock.last_command_time.elapsed().as_secs_f32() - lock.frequency_smooth_hz
-    );
+    let elapsed = lock.last_command_time.elapsed().as_secs_f32();
+    if elapsed > f32::EPSILON {
+        let instant_freq = 1.0 / elapsed;
+        lock.frequency_smooth_hz += CONNECTION_FREQUENCY_SMOOTHING * (instant_freq - lock.frequency_smooth_hz);
+    }
     lock.last_command_time = Instant::now();
 }
 

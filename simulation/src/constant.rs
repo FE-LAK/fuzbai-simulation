@@ -100,9 +100,9 @@ pub(crate) const ROD_ROT_PARAMS: [(f64, f64, f64, f64); 8] = [
 ];
 
 
-/// Gaussian noise standard deviation, added to the translational axis of the rods (in observation's units)
+/// Uniform noise half-width, added to the translational axis of the rods (in observation's units)
 pub(crate) const ROD_TRANS_NOISE: f64 = 0.005;
-/// Gaussian noise standard deviation, added to the rotational axis of the rods (in observation's units)
+/// Uniform noise half-width, added to the rotational axis of the rods (in observation's units)
 pub(crate) const ROD_ROT_NOISE: f64 = 1.0 * 32.0 / 180.0;
 
 
