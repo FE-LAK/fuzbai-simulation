@@ -23,14 +23,14 @@ pub const TERMINATION_Z_LEVEL: f64 = -0.5;
 /// miza has 27 geoms (IDs 0-26), so rod geoms begin at 27 (cylinder) + 28 (first player).
 /// Each rod body contains: 1 cylinder + 2*N player meshes.
 pub(crate) const ROD_COLLISION_PLAYER_IDS: [(usize, usize); 8] = [
-    (28, 29),  // goal r  (rod1: 1 cylinder at 27, 2 player meshes at 28–29)
-    (31, 34),  // def  r  (rod2: cylinder at 30, 4 player meshes at 31–34)
-    (36, 41),  // att  b  (rod3: cylinder at 35, 6 player meshes at 36–41)
-    (43, 52),  // off  r  (rod4: cylinder at 42, 10 player meshes at 43–52)
-    (54, 63),  // off  b  (rod5: cylinder at 53, 10 player meshes at 54–63)
-    (65, 70),  // att  r  (rod6: cylinder at 64, 6 player meshes at 65–70)
-    (72, 75),  // def  b  (rod7: cylinder at 71, 4 player meshes at 72–75)
-    (77, 78),  // goal b  (rod8: cylinder at 76, 2 player meshes at 77–78)
+    (28, 29),  // goal r  (rod1: 1 cylinder at 27, 2 player meshes at 28-29)
+    (31, 34),  // def  r  (rod2: cylinder at 30, 4 player meshes at 31-34)
+    (36, 41),  // att  b  (rod3: cylinder at 35, 6 player meshes at 36-41)
+    (43, 52),  // off  r  (rod4: cylinder at 42, 10 player meshes at 43-52)
+    (54, 63),  // off  b  (rod5: cylinder at 53, 10 player meshes at 54-63)
+    (65, 70),  // att  r  (rod6: cylinder at 64, 6 player meshes at 65-70)
+    (72, 75),  // def  b  (rod7: cylinder at 71, 4 player meshes at 72-75)
+    (77, 78),  // goal b  (rod8: cylinder at 76, 2 player meshes at 77-78)
 ];
 
 /// Global positions of the bodies holding each player geom
@@ -100,9 +100,9 @@ pub(crate) const ROD_ROT_PARAMS: [(f64, f64, f64, f64); 8] = [
 ];
 
 
-/// Gaussian noise standard deviation, added to the translational axis of the rods (in observation's units)
+/// Uniform noise half-width, added to the translational axis of the rods (in observation's units)
 pub(crate) const ROD_TRANS_NOISE: f64 = 0.005;
-/// Gaussian noise standard deviation, added to the rotational axis of the rods (in observation's units)
+/// Uniform noise half-width, added to the rotational axis of the rods (in observation's units)
 pub(crate) const ROD_ROT_NOISE: f64 = 1.0 * 32.0 / 180.0;
 
 

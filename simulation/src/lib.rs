@@ -51,7 +51,7 @@ static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjMo
 
 /* Enum definitions */
 #[cfg_attr(feature = "python-bindings", pyclass(eq, eq_int, module = "fuzbai_simulator"))]
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 #[repr(usize)] 
 /// Enumerates the two possible teams by color.
 pub enum PlayerTeam {
@@ -264,7 +264,7 @@ impl FuzbAISimulator {
 
     /// Returns the ball's true state (without noise) in the format. This is relative
     /// to the red team's coordinate system.
-    /// Format: (x [mm], y[mm], z[mm], vx [m/s], vy[m/s]).
+    /// Format: (x \[mm\], y\[mm\], z\[mm\], vx \[m/s\], vy\[m/s\], vz\[m/s\]).
     /// 
     /// # Note
     /// The `z-` coordinate increases when the ball is moved up in the global coordinate system.
@@ -281,7 +281,7 @@ impl FuzbAISimulator {
     /// Returns the true state of the player rods (from red side (left) towards blue side).
     /// There is no noise added on the returned data.
     /// Format: (rod translations [0, 1], rod rotations [-64, 64],
-    /// rod translational velocity [m/s], rod translational velocity [rad/s]).
+    /// rod translational velocity [m/s], rod rotational velocity [rad/s]).
     /// Note that only the translations and rotations are available on the real table, the velocities are here
     /// for debugging purposes.
     pub fn rods_true_state(&self) -> ([f64; 8], [f64; 8], [f64; 8], [f64; 8]) {
@@ -570,7 +570,7 @@ impl FuzbAISimulator {
             }
         }
 
-        // Truncation
+        // Termination (ball fell off)
         if ball_global_z_pos < TERMINATION_Z_LEVEL {
             self.terminated = true;
         }

@@ -1,28 +1,49 @@
-
-
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
-use serde::{Serialize, Deserialize};
-use utoipa::{OpenApi, ToSchema};
-use actix_files::{Files};
+use actix_web::middleware::{NormalizePath, TrailingSlash};
+use actix_files::Files;
 use actix_web::web;
 
-use actix_web::middleware::NormalizePath;
-use actix_web::middleware::TrailingSlash;
+use serde::{Serialize, Deserialize};
+use utoipa::{OpenApi, ToSchema};
 
-use fuzbai_simulator::{PlayerTeam, mujoco_rs::util::LockUnpoison};
+use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
+use fuzbai_simulator::PlayerTeam;
+
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
 use tokio::sync::Notify;
 
-
+use crate::competition::{COMPETITION_STATE, CompetitionPending, CompetitionStatus};
 
 /// How many (CPU) workers to create on each server (red and blue).
 /// A single worker will contain a new single-threaded tokio runtime in
 /// which tasks will be spawned.
 const NUM_WORKERS_PER_SERVER: usize = 3;
+/// Maximum concurrent connections per team server.
+const MAX_CONNECTIONS_PER_SERVER: usize = 10;
+
+/// The default port for the red team.
+pub(crate) const DEFAULT_TEAM_1_PORT: u16 = 8080;
+/// The default port for the blue team.
+pub(crate) const DEFAULT_TEAM_2_PORT: u16 = 8081;
+/// The default host for team servers.
+pub(crate) const DEFAULT_TEAM_HOST: &str = "0.0.0.0";
+
+/// How many (CPU) workers to create on the management server.
+const NUM_WORKERS_PER_MANAGEMENT: usize = 1;
+/// Maximum concurrent connections on the management server.
+const MAX_CONNECTIONS_MANAGEMENT: usize = 5;
+/// The default port used for management of the competition.
+pub(crate) const DEFAULT_MANAGEMENT_PORT: u16 = 8000;
+/// The default host for the management server.
+pub(crate) const DEFAULT_MANAGEMENT_HOST: &str = "127.0.0.1";
 
 /// The smoothing factor for the action execution frequency (first order filter).
 const CONNECTION_FREQUENCY_SMOOTHING: f32 = 0.1;
+
+/// Maximum size of JSON payloads.
+const MAX_JSON_PAYLOAD_BYTES: usize = 5000;
 
 
 /// Data received from a single camera.
@@ -83,6 +104,12 @@ pub struct MotorCommand {
 #[allow(non_snake_case)]
 pub struct MotorCommands {
     pub commands: Vec<MotorCommand>
+}
+
+#[derive(Deserialize)]
+pub struct SetTeamsRequest {
+    pub red: String,
+    pub blue: String,
 }
 
 
@@ -188,7 +215,13 @@ pub struct ResetResponse {
 )]
 pub struct ApiDoc;
 
-pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], shutdown_notify: Arc<Notify>) {
+pub async fn http_task(
+    team_states: [Arc<Mutex<TeamState>>; 2],
+    management_port: u16,
+    team_host: &str,
+    management_host: &str,
+    shutdown_notify: Arc<Notify>,
+) {
     // Try to obtain the www/ path next to the executable.
     // When the www/ does not exist next to the executable,
     // search the current working directory.
@@ -201,15 +234,40 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], shutdown_notify:
         })
         .unwrap_or_else(|| std::path::PathBuf::from("./www/"));
 
-    let factory = |team_state: Arc<Mutex<TeamState>>| {
-            let port = team_state.lock_unpoison().port;
-            let www_dir = www_dir.clone();
-            HttpServer::new(move || {
-            let json_config = web::JsonConfig::default().limit(5000);
+
+    let mut join_set = tokio::task::JoinSet::new();
+
+    /* Management HTTP server creation */
+    let management_data = web::Data::new(team_states.clone());
+    let management_server = HttpServer::new(move || {
+        App::new()
+            .wrap(NormalizePath::new(TrailingSlash::Trim))
+            .app_data(web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES))
+            .app_data(management_data.clone())
+            .service(start_game)
+            .service(pause_game)
+            .service(reset_game)
+            .service(set_teams)
+            .service(competition_status)
+    })
+    .workers(NUM_WORKERS_PER_MANAGEMENT)
+    .max_connections(MAX_CONNECTIONS_MANAGEMENT)
+    .bind((management_host, management_port)).unwrap()
+    .run();
+
+    let management_handle = management_server.handle();
+    join_set.spawn(management_server);
+
+    /* Team HTTP server creation */
+    let [team_handle_0, team_handle_1] = team_states.map(|team_state| {
+        let port = team_state.lock_unpoison().port;
+        let www_dir = www_dir.clone();
+        let team_data = web::Data::from(team_state);
+        let server = HttpServer::new(move || {
             App::new()
                 .wrap(NormalizePath::new(TrailingSlash::Trim))
-                .app_data(json_config)
-                .app_data(web::Data::new(team_state.clone()))
+                .app_data(web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES))
+                .app_data(team_data.clone())
                 .service(get_openapi)
                 .service(get_docs)
                 .service(get_camera_state)
@@ -223,20 +281,18 @@ pub async fn http_task(team_states: [Arc<Mutex<TeamState>>; 2], shutdown_notify:
                 )
         })
         .workers(NUM_WORKERS_PER_SERVER)
-        .max_connections(10)
-        .bind(("0.0.0.0", port)).unwrap()
-        .run()
-    };
+        .max_connections(MAX_CONNECTIONS_PER_SERVER)
+        .bind((team_host, port)).unwrap()
+        .run();
 
-    let mut join_set = tokio::task::JoinSet::new();
-
-    let server_handles = team_states.map(|state| {
-        let server = factory(state.clone());
         let handle = server.handle();
         join_set.spawn(server);
         handle
     });
 
+    let server_handles = [management_handle, team_handle_0, team_handle_1];
+
+    /* Shutdown logic */
     // Wait for the viewer to exit.
     shutdown_notify.notified().await;
     for handle in server_handles {
@@ -309,10 +365,10 @@ async fn get_docs() -> impl Responder {
     )
 )]
 #[get("/Camera/State")]
-async fn get_camera_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
+async fn get_camera_state(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let camera_state = {
         let mut lock = data.lock_unpoison();
-        update_team_frequency(&mut lock);
+        update_team_frequency(&mut *lock);
         lock.camera_state.clone()
     };
     HttpResponse::Ok().json(&camera_state)
@@ -328,7 +384,7 @@ async fn get_camera_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Respon
     )
 )]
 #[post("/Motors/SendCommand")]
-async fn send_command(data: web::Data<Arc<Mutex<TeamState>>>, commands: web::Json<MotorCommands>) -> impl Responder {
+async fn send_command(data: web::Data<Mutex<TeamState>>, commands: web::Json<MotorCommands>) -> impl Responder {
     data.lock_unpoison().pending_commands = commands.into_inner().commands;
     HttpResponse::Ok()
 }
@@ -355,66 +411,169 @@ async fn reset_rotations() -> impl Responder {
     )
 )]
 #[get("/State")]
-async fn get_state(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
+async fn get_state(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let camera_state = {
         let mut lock = data.lock_unpoison();
-        update_team_frequency(&mut lock);
+        update_team_frequency(&mut *lock);
         lock.camera_state.clone()
     };
 
-    let rp = camera_state.camData[0].rod_position_calib;
-    let rr = camera_state.camData[0].rod_angle;
-
-    let ball_x = camera_state.camData[0].ball_x;
-    let ball_y = camera_state.camData[0].ball_y;
-    let ball_vx = camera_state.camData[0].ball_vx;
-    let ball_vy = camera_state.camData[0].ball_vy;
-    let ball_size = camera_state.camData[0].ball_size;
+    let cam = &camera_state.camData[0];
+    let rp = cam.rod_position_calib;
+    let rr = cam.rod_angle;
 
     let state_cam_data = StateCameraState {
-        rods: std::array::from_fn(|i|
-            StateCameraStateRod { Item1: rp[i], Item2: rr[i] },
-        ),
-        ball_x, ball_y, ball_vx, ball_vy, ball_size
+        rods: std::array::from_fn(|i| StateCameraStateRod { Item1: rp[i], Item2: rr[i] }),
+        ball_x: cam.ball_x,
+        ball_y: cam.ball_y,
+        ball_vx: cam.ball_vx,
+        ball_vy: cam.ball_vy,
+        ball_size: cam.ball_size,
     };
 
-    HttpResponse::Ok().json(
-        State {
-            motorsReady: true,
-            camData: [
-                state_cam_data.clone(),
-                state_cam_data
-            ],
-            drivesStates: StateDrivesState { drives: [
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[0] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[0] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[1] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[1] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[3] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[3] }},
-                StateDrivesStateDrive {translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[5] }, rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[5] }},
-            ] }
-        }
-    )
+    // Rod indices matching the 4 physical drives (goalkeeper, defense, midfield, attack)
+    const DRIVE_ROD_INDICES: [usize; 4] = [0, 1, 3, 5];
+
+    HttpResponse::Ok().json(State {
+        motorsReady: true,
+        camData: [state_cam_data.clone(), state_cam_data],
+        drivesStates: StateDrivesState {
+            drives: DRIVE_ROD_INDICES.map(|i| StateDrivesStateDrive {
+                translation: StateDrivesStateDrivesValue { axisEncoderPosition: rp[i] },
+                rotation: StateDrivesStateDrivesValue { axisEncoderPosition: rr[i] },
+            }),
+        },
+    })
 }
 
 #[get("/Competition")]
-async fn get_competition(data: web::Data<Arc<Mutex<TeamState>>>) -> impl Responder {
+async fn get_competition(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let name = data.lock_unpoison().team_name.clone();
-    let response = CompetitionResponse {
+    HttpResponse::Ok().json(CompetitionResponse {
         state: 2,
         time: 0,
-        playerName: name.clone(),
-        scorePlayer: "".to_string(),
-        scoreFuzbAI: "".to_string(),
+        playerName: name,
+        scorePlayer: String::new(),
+        scoreFuzbAI: String::new(),
         level: 0,
         results: Vec::new(),
-    };
-
-    HttpResponse::Ok().json(response)
+    })
 }
 
-/// Updates the frequency and the last command time for the given team (locked via mutex).
-fn update_team_frequency(lock: &mut std::sync::MutexGuard<'_, TeamState>) {
-    lock.frequency_smooth_hz += CONNECTION_FREQUENCY_SMOOTHING * (
-        1.0 / lock.last_command_time.elapsed().as_secs_f32() - lock.frequency_smooth_hz
-    );
+/// Updates the frequency and the last command time for the given team.
+fn update_team_frequency(lock: &mut TeamState) {
+    let elapsed = lock.last_command_time.elapsed().as_secs_f32();
+    if elapsed > f32::EPSILON {
+        let instant_freq = 1.0 / elapsed;
+        lock.frequency_smooth_hz += CONNECTION_FREQUENCY_SMOOTHING * (instant_freq - lock.frequency_smooth_hz);
+    }
     lock.last_command_time = Instant::now();
+}
+
+/********************************************************************************************/
+/*                                        MANAGEMENT                                        */
+/********************************************************************************************/
+// Handlers here are used only for controlling the simulation via a management dashboard.
+
+#[post("/start")]
+async fn start_game() -> impl Responder {
+    {
+        let mut lock = COMPETITION_STATE.lock_unpoison();
+        match lock.status {
+            CompetitionStatus::Paused(elapsed) => {
+                // This subtraction may panic if the elapsed is larger than the elapsed system time.
+                // This is not really possible in reality and even if it is, it will turn the panic into a HTTP
+                // server error. Thus this is safe.
+                lock.status = CompetitionStatus::Running(Instant::now() - elapsed);  // resume from the paused elapsed time
+                lock.pending.push_back(CompetitionPending::ResetSimulation);
+            },
+            CompetitionStatus::Waiting | CompetitionStatus::Free | CompetitionStatus::Finished(_) => {
+                lock.status = CompetitionStatus::Running(Instant::now());
+                lock.pending.push_back(CompetitionPending::ResetScore);
+                lock.pending.push_back(CompetitionPending::ResetSimulation);
+            },
+            CompetitionStatus::Running(_) => {}  // already running, nothing to do.
+        }
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+#[post("/pause")]
+async fn pause_game() -> impl Responder {
+    {
+        let mut lock = COMPETITION_STATE.lock_unpoison();
+        if let CompetitionStatus::Running(timer) = lock.status {
+            lock.status = CompetitionStatus::Paused(timer.elapsed());
+        }
+    }
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+#[post("/reset")]
+async fn reset_game() -> impl Responder {
+    let mut comp_state = COMPETITION_STATE.lock_unpoison();
+    comp_state.status = CompetitionStatus::Waiting;
+    comp_state.pending.push_back(CompetitionPending::ResetScore);
+    comp_state.pending.push_back(CompetitionPending::ResetSimulation);
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+#[post("/teams")]
+async fn set_teams(
+    team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>,
+    body: web::Json<SetTeamsRequest>,
+) -> impl Responder {
+    // Team_states[0] is always Red, [1] is always Blue.
+    team_states[0].lock_unpoison().team_name = body.red.clone();
+    team_states[1].lock_unpoison().team_name = body.blue.clone();
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+
+/// Returns the status of the game and the elapsed time (if the game is running).
+#[get("/status")]
+async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) -> impl Responder {
+
+    #[derive(Serialize)]
+    struct ResponseCompetitionStatus {
+        status: &'static str,
+        score: [u16; 2],
+        gametime: f32
+    }
+
+    // Process global state
+    let (status, gametime) = {
+        let lock = COMPETITION_STATE.lock_unpoison();
+        match &lock.status {
+            CompetitionStatus::Running(timer) => {  // Match is running
+                ("running", timer.elapsed().as_secs_f32())
+            },
+            CompetitionStatus::Free => {  // Match is not running, but control is enabled
+                ("free", 0.0)
+            },
+            CompetitionStatus::Paused(elapsed) => {  // Match manually paused
+                ("paused", elapsed.as_secs_f32())
+            },
+            CompetitionStatus::Finished(elapsed) => {  // Game finished due to timeout or score reached
+                ("finished", elapsed.as_secs_f32())
+            },
+            CompetitionStatus::Waiting => {  // Match expired and waiting to start
+                ("waiting", 0.0)
+            }
+        }
+    };
+
+    // Team_states[0] is always Red, [1] is always Blue.
+    let score = {
+        let lock_0 = team_states[0].lock_unpoison();
+        let lock_1 = team_states[1].lock_unpoison();
+        [lock_0.score, lock_1.score]
+    };
+
+    HttpResponse::Ok().json(
+        ResponseCompetitionStatus {
+            status, gametime, score
+        }
+    )
 }

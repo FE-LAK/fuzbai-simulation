@@ -1,22 +1,28 @@
 use fuzbai_simulator::{FuzbAISimulator, PlayerTeam, ViewerProxy, VisualConfig};
 use fuzbai_simulator::mujoco_rs::util::LockUnpoison;
 
-use std::{collections::VecDeque, sync::{Arc, LazyLock, Mutex}, time::{Instant}};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tokio::runtime::Builder;
 use tokio::sync::Notify;
 
+use clap::Parser;
+
+use crate::http::{
+    DEFAULT_MANAGEMENT_HOST, DEFAULT_MANAGEMENT_PORT,
+    DEFAULT_TEAM_HOST, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT,
+};
+use crate::competition::{
+    COMPETITION_DURATION_SECS, COMPETITION_STATE,
+    CompetitionPending, CompetitionStatus,
+};
+
+mod competition;
 mod http;
 
-const COMPETITION_DURATION_SECS: u64 = 120;
 const EXPIRED_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
-
-static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
-
-/// Timeout, in seconds, after which the frequency display should consider the connection
-/// inactive.
-const CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS: u64 = 1;
 
 // Define global linkage for a MuJoCo error handler. This is redefined (from MuJoCo-rs's implementation)
 // to allow C-unwind, so panics can be triggered inside the handler.
@@ -41,40 +47,37 @@ unsafe extern "C-unwind" fn handle_mujoco_error(c_error_message: *const std::os:
     };
 }
 
-enum CompetitionPending {
-    ResetScore,
-    ResetSimulation,
-    SwapTeams,
-}
+/// Timeout, in seconds, after which the frequency display should consider the connection
+/// inactive.
+const CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS: u64 = 1;
 
-#[derive(PartialEq, Clone)]
-enum CompetitionStatus {
-    Running(Instant),
-    Expired,
-    Free
-}
+/// FuzbAI robotic foosball simulation application.
+#[derive(Parser)]
+#[command(about)]
+struct Cli {
+    /// Port for the first team server.
+    #[arg(long, default_value_t = DEFAULT_TEAM_1_PORT)]
+    team1_port: u16,
 
-struct CompetitionState {
-    status: CompetitionStatus,
-    pending: VecDeque<CompetitionPending>,
-}
+    /// Port for the second team server.
+    #[arg(long, default_value_t = DEFAULT_TEAM_2_PORT)]
+    team2_port: u16,
 
-impl CompetitionState {
-    /// Returns whether the competition time has ended.
-    fn expired(&self) -> bool {
-        self.status == CompetitionStatus::Expired
-    }
-}
+    /// Port for the management server.
+    #[arg(long, default_value_t = DEFAULT_MANAGEMENT_PORT)]
+    management_port: u16,
 
-impl Default for CompetitionState {
-    fn default() -> Self {
-        Self { status: CompetitionStatus::Expired, pending: VecDeque::new() }
-    }
+    /// Host address for team servers.
+    #[arg(long, default_value = DEFAULT_TEAM_HOST)]
+    team_host: String,
+
+    /// Host address for the management server.
+    #[arg(long, default_value = DEFAULT_MANAGEMENT_HOST)]
+    management_host: String,
 }
 
 fn main() {
-    let mut args = std::env::args();
-    let _ = args.next().unwrap();  // program path;
+    let cli = Cli::parse();
 
     // Set the MuJoCo error handler (from C language) to catch internal MuJoCo crashes
     // and convert them to panics
@@ -87,16 +90,15 @@ fn main() {
         *mju_user_error = Some(handle_mujoco_error)
     };
 
-    // Initialize the rest of Rust code
-    let port_0 = args.next()
-        .unwrap_or_else(|| "8080".into())
-        .parse::<u16>().expect("passed team 1 port was invalid");
-    let port_1 = args.next()
-        .unwrap_or_else(|| "8081".into())
-        .parse::<u16>().expect("passed team 2 port was invalid");
+    /* Extract CLI configuration */
+    let port_0 = cli.team1_port;
+    let port_1 = cli.team2_port;
+    let port_management = cli.management_port;
+    let team_host = cli.team_host;
+    let management_host = cli.management_host;
 
     /* Initialize states for each team */
-    let states = [
+    let team_states = [
         Arc::new(Mutex::new(http::TeamState {
             camera_state: http::CameraState::new(), port: port_0, team: PlayerTeam::Red, team_name: "Team 1".to_string(),
             score: 0, builtin: false, pending_commands: Vec::new(),
@@ -110,7 +112,13 @@ fn main() {
     ];
 
     /* Initialize tokio runtime and with it, the HTTP server */
-    let states_clone = states.clone();
+    let states_clone = team_states.clone();
+
+    // Clone host strings and convert ports to strings before they are moved into the tokio thread.
+    let team_host_ui = team_host.clone();
+    let management_host_ui = management_host.clone();
+    let management_port_str = port_management.to_string();
+    let team_port_strings = [port_0.to_string(), port_1.to_string()];
 
     // Notification to wake the HTTP task, so that it can trigger a shutdown.
     let shutdown_notify = Arc::new(Notify::new());
@@ -123,8 +131,11 @@ fn main() {
                 .enable_all()
                 .build()
                 .unwrap();
-
-            runtime.block_on(http::http_task(states_clone, shutdown_notify_clone));
+            runtime.block_on(http::http_task(
+                states_clone, port_management,
+                &team_host, &management_host,
+                shutdown_notify_clone
+            ));
     }).unwrap();
 
     /* Initialize simulation */
@@ -149,7 +160,7 @@ fn main() {
     // separately.
     let mut sim = sim_factory(true);
     // Start physics in another thread
-    let states_clone = states.clone();
+    let states_clone = team_states.clone();
     let sim_thread = std::thread::Builder::new()
         .name("simulation".into())
         .spawn(move || {
@@ -195,20 +206,17 @@ fn main() {
         // LAK logo. Loaded statically into the binary at compile-time.
         const LAK_IMAGE_SRC: egui::ImageSource<'static> = egui::include_image!("../www/lak_logo.png");
 
-        // Split the total remaining time into minutes and seconds.
-        // Additionally, if remaining time is zero, switch to expired state.
-        // We change to the expired state here to lower mutex contention when
-        // processing ui-related things and because placing it under any button processing
-        // code would cause the status to not change when window is minimized,
-        // as egui does not process hidden widgets.
+        // Split the total remaining time into minutes and seconds (read-only).
+        // The actual Running -> Finished transition happens in the simulation thread.
         let (rem_min, rem_sec, status) = {
-            let mut comp_state = COMPETITION_STATE.lock_unpoison();
+            let comp_state = COMPETITION_STATE.lock_unpoison();
             match &comp_state.status {
                 CompetitionStatus::Running(timer) => {
                     let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(timer.elapsed().as_secs());
-                    if total_rem_s == 0 {
-                        comp_state.status = CompetitionStatus::Expired;
-                    }
+                    (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
+                },
+                CompetitionStatus::Paused(elapsed) | CompetitionStatus::Finished(elapsed) => {
+                    let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(elapsed.as_secs());
                     (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
                 },
                 _ => (0, 0, comp_state.status.clone())
@@ -217,29 +225,41 @@ fn main() {
 
         // Control panel window
         egui::Window::new("FuzbAI Competition").show(ctx, |ui| {
+            ui.heading("Management");
+            egui::Grid::new("management_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Host");
+                ui.label("Port");
+                ui.end_row();
+                ui.label(&management_host_ui);
+                ui.label(&management_port_str);
+                ui.end_row();
+            });
+
+            ui.separator();
             ui.heading("Teams");
-            egui::Grid::new("team_grid").num_columns(4).show(ui, |ui| {
+            egui::Grid::new("team_grid").num_columns(5).show(ui, |ui| {
+                ui.label("Host");
                 ui.label("Port");
                 ui.label("Team");
                 ui.end_row();
-                for state_mutex in &states {
+                for (state_mutex, port_str) in team_states.iter().zip(&team_port_strings) {
 
                     // Create strings here to prevent unnecessary mutex holding. The locking itself takes a few nano-seconds.
-                    let (team_string, port_string, mut builtin, frequency_string) = {
+                    let (team_string, mut builtin, frequency_string) = {
                         let team_state = state_mutex.lock_unpoison();
                         let team = &team_state.team;
                         let team_name = &team_state.team_name;
 
-                        let port_string = team_state.port.to_string();
                         let team_string = format!("{team_name} ({team:?})");
                         let frequency_string =
                         if team_state.last_command_time.elapsed().as_secs() < CONNECTION_FREQUENCY_DISPLAY_TIMEOUT_SECS {
                             format!("{:.2} Hz", team_state.frequency_smooth_hz)
                         } else { "Inactive".to_string() };
-                        (team_string, port_string, team_state.builtin, frequency_string)
+                        (team_string, team_state.builtin, frequency_string)
                     };
 
-                    ui.label(port_string);
+                    ui.label(&team_host_ui);
+                    ui.label(port_str);
                     ui.label(team_string);
                     if ui.checkbox(&mut builtin, "built-in").clicked() {
                         state_mutex.lock_unpoison().builtin = builtin;
@@ -251,7 +271,7 @@ fn main() {
 
             ui.separator();
             match status {
-                CompetitionStatus::Expired | CompetitionStatus::Free => {
+                CompetitionStatus::Free | CompetitionStatus::Waiting => {
                     ui.horizontal(|ui| {
                         if ui.button("Start").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
@@ -270,21 +290,45 @@ fn main() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.pending.push_back(CompetitionPending::ResetScore);
                         }
-
-                        if ui.button("Swap teams").clicked() {
-                            COMPETITION_STATE.lock_unpoison().pending.push_back(CompetitionPending::SwapTeams);
-                        }
                     });
-                }
-
-                CompetitionStatus::Running(_) => {
+                },
+                CompetitionStatus::Running(timer) => {
                     ui.horizontal(|ui| {
                         if ui.button("Stop").clicked() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
-                            competition_state.status = CompetitionStatus::Expired;
+                            competition_state.status = CompetitionStatus::Waiting;
+                        }
+                        if ui.button("Pause").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            competition_state.status = CompetitionStatus::Paused(timer.elapsed());
                         }
                     });
-                }
+                },
+                CompetitionStatus::Paused(elapsed) => {
+                    ui.horizontal(|ui| {
+                        if ui.button("Resume").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            let maybe_instant = Instant::now().checked_sub(elapsed);
+                            // A "just-in-case" check, which shouldn't be possible realistically, however we have no panic guards here
+                            if let Some(instant) = maybe_instant {
+                                competition_state.status = CompetitionStatus::Running(instant);
+                                competition_state.pending.push_back(CompetitionPending::ResetSimulation);
+                            }
+                        }
+                        if ui.button("Stop").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            competition_state.status = CompetitionStatus::Waiting;
+                        }
+                    });
+                },
+                CompetitionStatus::Finished(_) => {
+                    ui.horizontal(|ui| {
+                        if ui.button("Stop").clicked() {
+                            let mut competition_state = COMPETITION_STATE.lock_unpoison();
+                            competition_state.status = CompetitionStatus::Waiting;
+                        }
+                    });
+                } 
             }
         });
 
@@ -329,20 +373,15 @@ fn main() {
             // Three columns: red team, central state, blue team.
             ui.set_width(300.0);
 
-            // Red index is 0, when team is 0, otherwise it's 1
-            let (red_index, team_0_name, team_0_score) = {
-                let lock = states[0].lock_unpoison();
-                ((lock.team != PlayerTeam::Red) as usize, lock.team_name.clone(), lock.score)
-            };
-            let (team_1_name, team_1_score) = {
-                let lock = states[1].lock_unpoison();
+            // Team_states[0] is always Red, [1] is always Blue.
+            let (mut red_name, red_score) = {
+                let lock = team_states[0].lock_unpoison();
                 (lock.team_name.clone(), lock.score)
             };
-
-            // Check which string/score goes to which side
-            let (mut red_name, red_score, mut blue_name, blue_score) = if red_index == 0 {
-                (team_0_name, team_0_score, team_1_name, team_1_score)
-            } else { (team_1_name, team_1_score, team_0_name, team_0_score) };
+            let (mut blue_name, blue_score) = {
+                let lock = team_states[1].lock_unpoison();
+                (lock.team_name.clone(), lock.score)
+            };
 
             ui.columns(3, |uis| {
                 let [red_ui, mid_ui, blue_ui] = uis else { unreachable!() };
@@ -353,10 +392,7 @@ fn main() {
                             .background_color(Color32::TRANSPARENT)
                             .font(FontId::proportional(30.0))
                     ).changed() {
-                        // It's faster to re-lock rather than keeping the mutex
-                        // locked during egui processing.
-                        let mut lock = states[red_index].lock_unpoison();
-                        lock.team_name = red_name;
+                        team_states[0].lock_unpoison().team_name = red_name;
                     }
 
                     ui.label(RichText::new(red_score.to_string()).font(FontId::proportional(24.0)));
@@ -389,8 +425,7 @@ fn main() {
                                 .font(FontId::proportional(30.0))
                                 .horizontal_align(Align::Max)
                         ).changed() {
-                            let mut lock = states[1 - red_index].lock_unpoison();
-                            lock.team_name = blue_name;
+                            team_states[1].lock_unpoison().team_name = blue_name;
                         }
                         ui.label(RichText::new(blue_score.to_string()).font(FontId::proportional(24.0)));
                     },
@@ -417,16 +452,19 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                 match pending {
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
-                    CompetitionPending::SwapTeams => {
-                        let mut team1_lock = team_states[0].lock_unpoison();
-                        let mut team2_lock = team_states[1].lock_unpoison();
-                        std::mem::swap(&mut team1_lock.team, &mut team2_lock.team);
-                        let score = sim.score();
-                        sim.set_score([score[1], score[0]]);
-                    }
                 }
             }
-            comp_state.expired()
+
+            // Check game timer expiry (Running -> Finished)
+            if let CompetitionStatus::Running(timer) = &comp_state.status {
+                if timer.elapsed().as_secs() >= COMPETITION_DURATION_SECS {
+                    comp_state.status = CompetitionStatus::Finished(timer.elapsed());
+                }
+            }
+
+            matches!(comp_state.status, CompetitionStatus::Paused(_)) ||
+                matches!(comp_state.status, CompetitionStatus::Finished(_)) ||
+                matches!(comp_state.status, CompetitionStatus::Waiting)
         };
 
         if competition_expired {
@@ -437,16 +475,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
         // Step simulation and synchronize the state.
         if sim.terminated() || sim.truncated() {
             let score = sim.score();
-            let mut red_name = String::new();
-            let mut blue_name = String::new();
-            for ts in &team_states {
-                let lock = ts.lock_unpoison();
-                if lock.team == PlayerTeam::Red {
-                    red_name = lock.team_name.clone();
-                } else {
-                    blue_name = lock.team_name.clone();
-                }
-            }
+            let red_name = team_states[0].lock_unpoison().team_name.clone();
+            let blue_name = team_states[1].lock_unpoison().team_name.clone();
             println!("Score ({} - {}): [{}, {}]", red_name, blue_name, score[0], score[1]);
             sim.reset_simulation();
         }
@@ -456,8 +486,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
         let score = *sim.score();
         for team_state in &team_states {
             let mut team_state_lock = team_state.lock_unpoison();
-            let team = team_state_lock.team.clone();
-            let observation = sim.delayed_observation(team.clone(), None);
+            let team = team_state_lock.team;
+            let observation = sim.delayed_observation(team, None);
             let (
                 mut ball_x, mut ball_y, ball_vx, ball_vy,
                 rod_position_calib, rod_angle
@@ -480,8 +510,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
 
             /* Update the state for the configured team */
             team_state_lock.camera_state.camData = [camera_data_0, camera_data_1];
-            team_state_lock.score = score[team.clone() as usize];
-            sim.set_external_mode(team.clone(), !team_state_lock.builtin);
+            team_state_lock.score = score[team as usize];
+            sim.set_external_mode(team, !team_state_lock.builtin);
 
             command_buffer.clear();
             command_buffer.extend(team_state_lock.pending_commands.iter().take(4).map(|c|
