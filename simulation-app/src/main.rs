@@ -478,8 +478,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
         let score = *sim.score();
         for team_state in &team_states {
             let mut team_state_lock = team_state.lock_unpoison();
-            let team = team_state_lock.team.clone();
-            let observation = sim.delayed_observation(team.clone(), None);
+            let team = team_state_lock.team;
+            let observation = sim.delayed_observation(team, None);
             let (
                 mut ball_x, mut ball_y, ball_vx, ball_vy,
                 rod_position_calib, rod_angle
@@ -502,8 +502,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
 
             /* Update the state for the configured team */
             team_state_lock.camera_state.camData = [camera_data_0, camera_data_1];
-            team_state_lock.score = score[team.clone() as usize];
-            sim.set_external_mode(team.clone(), !team_state_lock.builtin);
+            team_state_lock.score = score[team as usize];
+            sim.set_external_mode(team, !team_state_lock.builtin);
 
             command_buffer.clear();
             command_buffer.extend(team_state_lock.pending_commands.iter().take(4).map(|c|

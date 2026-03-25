@@ -25,7 +25,7 @@ pub enum CompetitionStatus {
     Finished(u64),
     /// Untimed free play.
     Free,
-    // Waiting for the gane to start
+    /// Waiting for the game to start.
     Waiting,
 }
 

@@ -23,9 +23,9 @@ const NUM_WORKERS_PER_SERVER: usize = 3;
 /// Maximum concurrent connections per team server.
 const MAX_CONNECTIONS_PER_SERVER: usize = 10;
 
-/// The default port for the (originally) red team.
+/// The default port for the red team.
 pub(crate) const DEFAULT_TEAM_1_PORT: u16 = 8080;
-/// The default port for the (originally) blue team.
+/// The default port for the blue team.
 pub(crate) const DEFAULT_TEAM_2_PORT: u16 = 8081;
 /// The default host for team servers.
 pub(crate) const DEFAULT_TEAM_HOST: &str = "0.0.0.0";
