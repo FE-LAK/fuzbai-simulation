@@ -15,7 +15,7 @@ use crate::http::{
     DEFAULT_TEAM_HOST, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT,
 };
 use crate::competition::{
-    COMPETITION_DURATION_SECS, COMPETITION_STATE,
+    COMPETITION_DURATION_SECS, COMPETITION_WIN_GOALS, COMPETITION_STATE,
     CompetitionPending, CompetitionStatus,
 };
 
@@ -138,7 +138,7 @@ fn main() {
             ));
     }).unwrap();
 
-    /* Initialize simulation */
+    /* Define simulation factory */
     let sim_factory = |init_viewer| {
         FuzbAISimulator::new(
             1, // internal_step_factor: .step_simulation() = N * (2 ms)
@@ -455,10 +455,15 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                 }
             }
 
-            // Check game timer expiry (Running -> Finished)
+            // Check timer expiry and 5-goal win condition (Running -> Finished)
             if let CompetitionStatus::Running(timer) = &comp_state.status {
-                if timer.elapsed().as_secs() >= COMPETITION_DURATION_SECS {
-                    comp_state.status = CompetitionStatus::Finished(timer.elapsed());
+                let elapsed = timer.elapsed();
+                let score = sim.score();
+                if elapsed.as_secs() >= COMPETITION_DURATION_SECS
+                    || score[0] >= COMPETITION_WIN_GOALS
+                    || score[1] >= COMPETITION_WIN_GOALS
+                {
+                    comp_state.status = CompetitionStatus::Finished(elapsed);
                 }
             }
 

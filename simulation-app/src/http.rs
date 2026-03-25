@@ -70,7 +70,7 @@ impl CameraData {
 }
 
 
-/// Return type for [`camera_state`].
+/// Return type for [`get_camera_state`].
 /// Contains state for both cameras.
 #[derive(Serialize, Clone, ToSchema)]
 #[allow(non_snake_case)]

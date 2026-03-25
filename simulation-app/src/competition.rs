@@ -6,6 +6,8 @@ use std::collections::VecDeque;
 pub static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
 /// Total match duration in seconds.
 pub const COMPETITION_DURATION_SECS: u64 = 120;
+/// Number of goals required to win a match.
+pub const COMPETITION_WIN_GOALS: u16 = 5;
 
 /// Actions queued for the simulation thread to execute on the next tick.
 pub enum CompetitionPending {
@@ -21,8 +23,8 @@ pub enum CompetitionStatus {
     /// Match manually paused.
     /// Wraps the elapsed [`Duration`] when the pause occurred.
     Paused(Duration),
-    /// Match time expired (timer ran out).
-    /// Wraps the total elapsed [`Duration`].
+    /// Match ended: either the timer reached [`COMPETITION_DURATION_SECS`] or a team scored
+    /// [`COMPETITION_WIN_GOALS`] goals. Wraps the elapsed [`Duration`] at the moment of completion.
     Finished(Duration),
     /// Untimed free play.
     Free,
