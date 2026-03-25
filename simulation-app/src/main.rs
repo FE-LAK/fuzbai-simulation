@@ -206,21 +206,13 @@ fn main() {
         // LAK logo. Loaded statically into the binary at compile-time.
         const LAK_IMAGE_SRC: egui::ImageSource<'static> = egui::include_image!("../www/lak_logo.png");
 
-        // Split the total remaining time into minutes and seconds.
-        // Additionally, if remaining time is zero, switch to expired state.
-        // We change to the expired state here to lower mutex contention when
-        // processing ui-related things and because placing it under any button processing
-        // code would cause the status to not change when window is minimized,
-        // as egui does not process hidden widgets.
+        // Split the total remaining time into minutes and seconds (read-only).
+        // The actual Running → Finished transition happens in the simulation thread.
         let (rem_min, rem_sec, status) = {
-            let mut comp_state = COMPETITION_STATE.lock_unpoison();
+            let comp_state = COMPETITION_STATE.lock_unpoison();
             match &comp_state.status {
                 CompetitionStatus::Running(timer) => {
-                    let elapsed = timer.elapsed();
-                    let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(elapsed.as_secs());
-                    if total_rem_s == 0 {
-                        comp_state.status = CompetitionStatus::Finished(elapsed);
-                    }
+                    let total_rem_s = COMPETITION_DURATION_SECS.saturating_sub(timer.elapsed().as_secs());
                     (total_rem_s / 60, total_rem_s % 60, comp_state.status.clone())
                 },
                 CompetitionStatus::Paused(elapsed) | CompetitionStatus::Finished(elapsed) => {
@@ -462,6 +454,14 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
                 }
             }
+
+            // Check game timer expiry (Running → Finished)
+            if let CompetitionStatus::Running(timer) = &comp_state.status {
+                if timer.elapsed().as_secs() >= COMPETITION_DURATION_SECS {
+                    comp_state.status = CompetitionStatus::Finished(timer.elapsed());
+                }
+            }
+
             matches!(comp_state.status, CompetitionStatus::Paused(_)) ||
                 matches!(comp_state.status, CompetitionStatus::Finished(_)) ||
                 matches!(comp_state.status, CompetitionStatus::Waiting)

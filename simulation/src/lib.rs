@@ -264,7 +264,7 @@ impl FuzbAISimulator {
 
     /// Returns the ball's true state (without noise) in the format. This is relative
     /// to the red team's coordinate system.
-    /// Format: (x [mm], y[mm], z[mm], vx [m/s], vy[m/s], vz[m/s]).
+    /// Format: (x \[mm\], y\[mm\], z\[mm\], vx \[m/s\], vy\[m/s\], vz\[m/s\]).
     /// 
     /// # Note
     /// The `z-` coordinate increases when the ball is moved up in the global coordinate system.
