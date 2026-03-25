@@ -1,7 +1,7 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
 use actix_web::middleware::{NormalizePath, TrailingSlash};
-use actix_web::web;
 use actix_files::Files;
+use actix_web::web;
 
 use serde::{Serialize, Deserialize};
 use utoipa::{OpenApi, ToSchema};

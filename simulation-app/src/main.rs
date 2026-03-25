@@ -10,10 +10,13 @@ use tokio::sync::Notify;
 
 use clap::Parser;
 
-use crate::competition::{COMPETITION_DURATION_SECS, COMPETITION_STATE, CompetitionPending, CompetitionStatus};
 use crate::http::{
     DEFAULT_MANAGEMENT_HOST, DEFAULT_MANAGEMENT_PORT,
     DEFAULT_TEAM_HOST, DEFAULT_TEAM_1_PORT, DEFAULT_TEAM_2_PORT,
+};
+use crate::competition::{
+    COMPETITION_DURATION_SECS, COMPETITION_STATE,
+    CompetitionPending, CompetitionStatus,
 };
 
 mod competition;

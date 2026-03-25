@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 
 /// Global competition state shared between the simulation thread, GUI, and HTTP handlers.
 pub static COMPETITION_STATE: LazyLock<Mutex<CompetitionState>> = LazyLock::new(|| Mutex::new(CompetitionState::default()));
+/// Total match duration in seconds.
 pub const COMPETITION_DURATION_SECS: u64 = 120;
 
 /// Actions queued for the simulation thread to execute on the next tick.
@@ -29,7 +30,7 @@ pub enum CompetitionStatus {
     Waiting,
 }
 
-/// Mutable competition state protected by `COMPETITION_STATE`.
+/// Mutable competition state protected by [`COMPETITION_STATE`].
 pub struct CompetitionState {
     pub status: CompetitionStatus,
     pub pending: VecDeque<CompetitionPending>,
