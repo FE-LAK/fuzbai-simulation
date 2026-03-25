@@ -524,13 +524,9 @@ async fn set_teams(
     team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>,
     body: web::Json<SetTeamsRequest>,
 ) -> impl Responder {
-    for state in team_states.iter() {
-        let mut lock = state.lock_unpoison();
-        match lock.team {
-            PlayerTeam::Red => lock.team_name = body.red.clone(),
-            PlayerTeam::Blue => lock.team_name = body.blue.clone(),
-        }
-    }
+    // Team_states[0] is always Red, [1] is always Blue.
+    team_states[0].lock_unpoison().team_name = body.red.clone();
+    team_states[1].lock_unpoison().team_name = body.blue.clone();
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
@@ -568,21 +564,16 @@ async fn competition_status(team_states: web::Data<[Arc<Mutex<TeamState>>; 2]>) 
         }
     };
 
-    // Get scores for both teams. Due to the swapping feature, the index 0 may not be red.
-    let (team_1_score, team1_color) = {
-        let lock = team_states[0].lock_unpoison();
-        (lock.score, lock.team)
+    // Team_states[0] is always Red, [1] is always Blue.
+    let score = {
+        let lock_0 = team_states[0].lock_unpoison();
+        let lock_1 = team_states[1].lock_unpoison();
+        [lock_0.score, lock_1.score]
     };
-
-    let team_2_score = team_states[1].lock_unpoison().score;
-
-    let score_red_blue = if team1_color == PlayerTeam::Red {
-        [team_1_score, team_2_score]
-    } else { [team_2_score, team_1_score] };
 
     HttpResponse::Ok().json(
         ResponseCompetitionStatus {
-            status, gametime, score: score_red_blue
+            status, gametime, score
         }
     )
 }

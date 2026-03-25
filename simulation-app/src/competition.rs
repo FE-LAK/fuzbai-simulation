@@ -10,7 +10,6 @@ pub const COMPETITION_DURATION_SECS: u64 = 120;
 pub enum CompetitionPending {
     ResetScore,
     ResetSimulation,
-    SwapTeams,
 }
 
 /// Current phase of the competition.

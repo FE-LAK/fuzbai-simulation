@@ -290,10 +290,6 @@ fn main() {
                             let mut competition_state = COMPETITION_STATE.lock_unpoison();
                             competition_state.pending.push_back(CompetitionPending::ResetScore);
                         }
-
-                        if ui.button("Swap teams").clicked() {
-                            COMPETITION_STATE.lock_unpoison().pending.push_back(CompetitionPending::SwapTeams);
-                        }
                     });
                 },
                 CompetitionStatus::Running(timer) => {
@@ -377,20 +373,15 @@ fn main() {
             // Three columns: red team, central state, blue team.
             ui.set_width(300.0);
 
-            // Red index is 0, when team is 0, otherwise it's 1
-            let (red_index, team_0_name, team_0_score) = {
+            // Team_states[0] is always Red, [1] is always Blue.
+            let (mut red_name, red_score) = {
                 let lock = team_states[0].lock_unpoison();
-                ((lock.team != PlayerTeam::Red) as usize, lock.team_name.clone(), lock.score)
+                (lock.team_name.clone(), lock.score)
             };
-            let (team_1_name, team_1_score) = {
+            let (mut blue_name, blue_score) = {
                 let lock = team_states[1].lock_unpoison();
                 (lock.team_name.clone(), lock.score)
             };
-
-            // Check which string/score goes to which side
-            let (mut red_name, red_score, mut blue_name, blue_score) = if red_index == 0 {
-                (team_0_name, team_0_score, team_1_name, team_1_score)
-            } else { (team_1_name, team_1_score, team_0_name, team_0_score) };
 
             ui.columns(3, |uis| {
                 let [red_ui, mid_ui, blue_ui] = uis else { unreachable!() };
@@ -401,10 +392,7 @@ fn main() {
                             .background_color(Color32::TRANSPARENT)
                             .font(FontId::proportional(30.0))
                     ).changed() {
-                        // It's faster to re-lock rather than keeping the mutex
-                        // locked during egui processing.
-                        let mut lock = team_states[red_index].lock_unpoison();
-                        lock.team_name = red_name;
+                        team_states[0].lock_unpoison().team_name = red_name;
                     }
 
                     ui.label(RichText::new(red_score.to_string()).font(FontId::proportional(24.0)));
@@ -437,8 +425,7 @@ fn main() {
                                 .font(FontId::proportional(30.0))
                                 .horizontal_align(Align::Max)
                         ).changed() {
-                            let mut lock = team_states[1 - red_index].lock_unpoison();
-                            lock.team_name = blue_name;
+                            team_states[1].lock_unpoison().team_name = blue_name;
                         }
                         ui.label(RichText::new(blue_score.to_string()).font(FontId::proportional(24.0)));
                     },
@@ -465,13 +452,6 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                 match pending {
                     CompetitionPending::ResetScore => sim.clear_score(),
                     CompetitionPending::ResetSimulation => sim.reset_simulation(),
-                    CompetitionPending::SwapTeams => {
-                        let mut team1_lock = team_states[0].lock_unpoison();
-                        let mut team2_lock = team_states[1].lock_unpoison();
-                        std::mem::swap(&mut team1_lock.team, &mut team2_lock.team);
-                        let score = sim.score();
-                        sim.set_score([score[1], score[0]]);
-                    }
                 }
             }
             matches!(comp_state.status, CompetitionStatus::Paused(_)) ||
@@ -487,16 +467,8 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
         // Step simulation and synchronize the state.
         if sim.terminated() || sim.truncated() {
             let score = sim.score();
-            let mut red_name = String::new();
-            let mut blue_name = String::new();
-            for ts in &team_states {
-                let lock = ts.lock_unpoison();
-                if lock.team == PlayerTeam::Red {
-                    red_name = lock.team_name.clone();
-                } else {
-                    blue_name = lock.team_name.clone();
-                }
-            }
+            let red_name = team_states[0].lock_unpoison().team_name.clone();
+            let blue_name = team_states[1].lock_unpoison().team_name.clone();
             println!("Score ({} - {}): [{}, {}]", red_name, blue_name, score[0], score[1]);
             sim.reset_simulation();
         }
