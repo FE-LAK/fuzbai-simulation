@@ -207,7 +207,7 @@ fn main() {
         const LAK_IMAGE_SRC: egui::ImageSource<'static> = egui::include_image!("../www/lak_logo.png");
 
         // Split the total remaining time into minutes and seconds (read-only).
-        // The actual Running → Finished transition happens in the simulation thread.
+        // The actual Running -> Finished transition happens in the simulation thread.
         let (rem_min, rem_sec, status) = {
             let comp_state = COMPETITION_STATE.lock_unpoison();
             match &comp_state.status {
@@ -455,7 +455,7 @@ fn simulation_thread(sim: &mut FuzbAISimulator, team_states: [Arc<Mutex<http::Te
                 }
             }
 
-            // Check game timer expiry (Running → Finished)
+            // Check game timer expiry (Running -> Finished)
             if let CompetitionStatus::Running(timer) = &comp_state.status {
                 if timer.elapsed().as_secs() >= COMPETITION_DURATION_SECS {
                     comp_state.status = CompetitionStatus::Finished(timer.elapsed());
