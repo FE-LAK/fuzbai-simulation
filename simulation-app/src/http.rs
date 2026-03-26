@@ -239,7 +239,7 @@ pub async fn http_task(
 
     /* Management HTTP server creation */
     let management_data = web::Data::new(team_states.clone());
-    let management_server = HttpServer::new(move || {
+    let management_server = match HttpServer::new(move || {
         App::new()
             .wrap(NormalizePath::new(TrailingSlash::Trim))
             .app_data(web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES))
@@ -252,8 +252,14 @@ pub async fn http_task(
     })
     .workers(NUM_WORKERS_PER_MANAGEMENT)
     .max_connections(MAX_CONNECTIONS_MANAGEMENT)
-    .bind((management_host, management_port)).unwrap()
-    .run();
+    .bind((management_host, management_port))
+    {
+        Ok(s) => s.run(),
+        Err(e) => {
+            eprintln!("ERROR: Failed to bind management server to {}:{} -- {}", management_host, management_port, e);
+            std::process::exit(1);
+        }
+    };
 
     let management_handle = management_server.handle();
     join_set.spawn(management_server);
@@ -263,7 +269,7 @@ pub async fn http_task(
         let port = team_state.lock_unpoison().port;
         let www_dir = www_dir.clone();
         let team_data = web::Data::from(team_state);
-        let server = HttpServer::new(move || {
+        let server = match HttpServer::new(move || {
             App::new()
                 .wrap(NormalizePath::new(TrailingSlash::Trim))
                 .app_data(web::JsonConfig::default().limit(MAX_JSON_PAYLOAD_BYTES))
@@ -282,8 +288,14 @@ pub async fn http_task(
         })
         .workers(NUM_WORKERS_PER_SERVER)
         .max_connections(MAX_CONNECTIONS_PER_SERVER)
-        .bind((team_host, port)).unwrap()
-        .run();
+        .bind((team_host, port))
+        {
+            Ok(s) => s.run(),
+            Err(e) => {
+                eprintln!("ERROR: Failed to bind team server to {}:{} -- {}", team_host, port, e);
+                std::process::exit(1);
+            }
+        };
 
         let handle = server.handle();
         join_set.spawn(server);
