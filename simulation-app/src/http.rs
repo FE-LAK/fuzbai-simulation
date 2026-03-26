@@ -28,7 +28,7 @@ pub(crate) const DEFAULT_TEAM_1_PORT: u16 = 8080;
 /// The default port for the blue team.
 pub(crate) const DEFAULT_TEAM_2_PORT: u16 = 8081;
 /// The default host for team servers.
-pub(crate) const DEFAULT_TEAM_HOST: &str = "0.0.0.0";
+pub(crate) const DEFAULT_TEAM_HOST: &str = "127.0.0.1";
 
 /// How many (CPU) workers to create on the management server.
 const NUM_WORKERS_PER_MANAGEMENT: usize = 1;
