@@ -153,6 +153,7 @@ fn main() {
             5, // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
             true,
             delay_s,
+            0.0,
             None,
             VisualConfig::new(
                 0, false,
