@@ -59,6 +59,10 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
         self.max_acceleration[act_id] = max_acc;
     }
 
+    pub fn calibration_error(&self) -> f64 {
+        self.calibration_error
+    }
+
     /// Configures the calibration error.
     /// In reality, this may be a consequence of imperfect camera calibration,
     /// rod handle drift, etc.

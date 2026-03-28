@@ -209,7 +209,11 @@ pub struct FuzbAISimulator {
     rot_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
 
     /* Visualization */
-    visualizer: Visualizer<&'static MjModel>
+    visualizer: Visualizer<&'static MjModel>,
+
+    /* Real-world discrepancy simulation */
+    ball_x_error: f64,
+    ball_y_error: f64,
 }
 
 
@@ -400,9 +404,11 @@ impl FuzbAISimulator {
         self.mj_data.step();
     }
 
-    pub fn set_calibration_error(&mut self, extension: f64, rotation: f64) {
+    pub fn set_calibration_error(&mut self, extension: f64, rotation: f64, ball_x: f64, ball_y: f64) {
         self.trans_motor_ctrl.set_calibration_error(extension);
         self.rot_motor_ctrl.set_calibration_error(rotation);
+        self.ball_x_error = ball_x;
+        self.ball_y_error = ball_y;
     }
 
     /// Configures whether the specific `team` should obtain commands externally (`enable` = `true`)
@@ -779,7 +785,8 @@ impl FuzbAISimulator {
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
             mj_data_act_ball_damp_x, mj_data_act_ball_damp_y,
-            visualizer: Visualizer::new(trace_length)
+            visualizer: Visualizer::new(trace_length),
+            ball_x_error: 0.0, ball_y_error: 0.0
         }
     }
 
@@ -959,16 +966,26 @@ impl FuzbAISimulator {
         let [mut ball_x, mut ball_y, _, mut ball_vx, mut ball_vy, _] = self.ball_true_state();
         let (mut rod_positions, mut rod_rotations, ..) = self.rods_true_state();
 
+        let rod_trans_error = self.trans_motor_ctrl.calibration_error();
+        let rod_rot_error = self.rot_motor_ctrl.calibration_error();
+
         let dist = Uniform::new(0.0, 1.0).unwrap();
         let mut rng = rand::rng();
 
-        ball_x  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE;
-        ball_y  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE;
+        ball_x  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE + self.ball_x_error;
+        ball_y  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE + self.ball_y_error;
         ball_vx += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_VELOCITY_NOISE;
         ball_vy += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_VELOCITY_NOISE;
 
-        rod_positions = std::array::from_fn(|i| (rod_positions[i] + (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_TRANS_NOISE).clamp(0.0, 1.0));
-        rod_rotations = std::array::from_fn(|i| (rod_rotations[i] + (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_ROT_NOISE).clamp(-64.0, 64.0));
+        rod_positions = std::array::from_fn(|i| (
+            rod_positions[i] + rod_trans_error +
+            (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_TRANS_NOISE
+        ).clamp(0.0, 1.0));
+
+        rod_rotations = std::array::from_fn(|i| (
+            rod_rotations[i] + rod_rot_error +
+            (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_ROT_NOISE
+        ).clamp(-64.0, 64.0));
 
         (ball_x, ball_y, ball_vx, ball_vy, rod_positions, rod_rotations)
     }
