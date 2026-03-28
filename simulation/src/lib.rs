@@ -400,6 +400,11 @@ impl FuzbAISimulator {
         self.mj_data.step();
     }
 
+    pub fn set_calibration_error(&mut self, extension: f64, rotation: f64) {
+        self.trans_motor_ctrl.set_calibration_error(extension);
+        self.rot_motor_ctrl.set_calibration_error(rotation);
+    }
+
     /// Configures whether the specific `team` should obtain commands externally (`enable` = `true`)
     /// or internally (`enable` = `false`, the agent is stored within the simulation).
     pub fn set_external_mode(&mut self, team: PlayerTeam, enable: bool) {
