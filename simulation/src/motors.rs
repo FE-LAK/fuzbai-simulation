@@ -26,6 +26,9 @@ pub(crate) struct TrapezoidMotorSystem<M: Deref<Target = MjModel>> {
     stop_threshold: f64,
     dead_band: [f64; 8],
 
+    // Real effect simulations
+    calibration_error: f64,
+
     // Dummy for storing the generic type
     phantom: PhantomData<M>
 }
@@ -44,6 +47,7 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
         Self {
             kp, kd, max_velocity, max_acceleration, joint_info, actuator_info,
             target_velocity, target_pos, velocity_scaler, direction, stop_threshold, dead_band,
+            calibration_error: 0.0,
             phantom: PhantomData
         }
     }
@@ -55,11 +59,18 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
         self.max_acceleration[act_id] = max_acc;
     }
 
+    /// Configures the calibration error.
+    /// In reality, this may be a consequence of imperfect camera calibration,
+    /// rod handle drift, etc.
+    pub fn set_calibration_error(&mut self, error: f64) {
+        self.calibration_error = error;
+    }
+
     /// Updates the actuator states and the output torque
     pub fn step(&mut self, data: &mut MjData<M>) {
         for act_id in 0..8 {
             let joint_view = self.joint_info[act_id].view_mut(data);
-            let qpos = joint_view.qpos[0];
+            let qpos = joint_view.qpos[0] + self.calibration_error;
             let qvel = joint_view.qvel[0];
             let grav_comp = joint_view.qfrc_bias[0];
 
@@ -119,7 +130,7 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
 
     #[inline]
     pub fn qpos(&self, data: &MjData<M>, act_id: usize) -> f64 {
-        self.joint_info[act_id].view(data).qpos[0]
+        self.joint_info[act_id].view(data).qpos[0] + self.calibration_error
     }
 
     #[inline]
