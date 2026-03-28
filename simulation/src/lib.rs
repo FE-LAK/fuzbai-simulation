@@ -636,11 +636,12 @@ impl FuzbAISimulator {
         internal_step_factor: usize,
         sample_steps: usize,
         realtime: bool,
-        simulated_delay_s: f64,
+        simulated_delay_s_mean: f64,
+        simulated_delay_s_variance: f64,
         model_path: Option<&str>,
-        visual_config: VisualConfig
+        visual_config: VisualConfig,
     ) -> Self {
-        Self::new(internal_step_factor, sample_steps, realtime, simulated_delay_s, model_path, visual_config)
+        Self::new(internal_step_factor, sample_steps, realtime, simulated_delay_s_mean, simulated_delay_s_variance, model_path, visual_config)
     }
 
     #[cfg(feature = "python-bindings")]
@@ -966,9 +967,6 @@ impl FuzbAISimulator {
         let [mut ball_x, mut ball_y, _, mut ball_vx, mut ball_vy, _] = self.ball_true_state();
         let (mut rod_positions, mut rod_rotations, ..) = self.rods_true_state();
 
-        let rod_trans_error = self.trans_motor_ctrl.calibration_error();
-        let rod_rot_error = self.rot_motor_ctrl.calibration_error();
-
         let dist = Uniform::new(0.0, 1.0).unwrap();
         let mut rng = rand::rng();
 
@@ -978,12 +976,12 @@ impl FuzbAISimulator {
         ball_vy += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_VELOCITY_NOISE;
 
         rod_positions = std::array::from_fn(|i| (
-            rod_positions[i] + rod_trans_error +
+            rod_positions[i] +
             (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_TRANS_NOISE
         ).clamp(0.0, 1.0));
 
         rod_rotations = std::array::from_fn(|i| (
-            rod_rotations[i] + rod_rot_error +
+            rod_rotations[i] +
             (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_ROT_NOISE
         ).clamp(-64.0, 64.0));
 
