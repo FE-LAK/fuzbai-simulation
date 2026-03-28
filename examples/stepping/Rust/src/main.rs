@@ -74,6 +74,7 @@ fn main() {
         5,  // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
         true, // realtime
         0.055, // simulated_delay_s
+        0.0,
         None, // model_path
         VisualConfig::new(
             0,     // trace_length
