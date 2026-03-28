@@ -140,7 +140,9 @@ pub struct FuzbAISimulator {
     // Parameter data
     internal_step_factor: usize,
     sample_steps: usize,
-    simulated_delay_s: f64,
+    simulated_delay_s_mean: f64,
+    simulated_delay_s_variance: f64,
+
     visual_config: VisualConfig,
     realtime: bool,
 
@@ -247,9 +249,14 @@ impl FuzbAISimulator {
         self.collision_indices
     }
 
-    /// Returns the configured simulated delay (in seconds).
-    pub fn simulated_delay_s(&self) -> f64 {
-        self.simulated_delay_s
+    /// Returns the configured simulated delay mean (in seconds).
+    pub fn simulated_delay_s_mean(&self) -> f64 {
+        self.simulated_delay_s_mean
+    }
+
+    /// Returns the configured simulated delay variance (in seconds).
+    pub fn simulated_delay_s_variance(&self) -> f64 {
+        self.simulated_delay_s_variance
     }
 
     /// Checks if the viewer is still running.
@@ -322,7 +329,15 @@ impl FuzbAISimulator {
     /// The delay can be optionally specified by `delay`.
     /// To use the constructor-set delay (at initialization), pass [`None`].
     pub fn delayed_observation(&self, team: PlayerTeam, delay: Option<f64>)  -> ObservationType {
-        let delay = delay.unwrap_or(self.simulated_delay_s);
+        // const 
+        static DIST: std::sync::LazyLock<Uniform<f64>> = std::sync::LazyLock::new(|| Uniform::new(0.0, 1.0).unwrap());
+
+        let delay = delay.unwrap_or_else(|| {
+            let mut rng = rand::rng();
+            let eps = DIST.sample(&mut rng);
+            self.simulated_delay_s_mean + self.simulated_delay_s_variance * eps
+        });
+
         if delay == 0.0 || self.delayed_memory.is_empty() {
             return self.observation(team);
         }
@@ -345,8 +360,9 @@ impl FuzbAISimulator {
     }
 
     /// Sets the simulated delay (in seconds) to `simulated_delay_s`.
-    pub fn set_simulated_delay(&mut self, simulated_delay_s: f64) {
-        self.simulated_delay_s = simulated_delay_s;
+    pub fn set_simulated_delay(&mut self, mean_s: f64, variance_s: f64) {
+        self.simulated_delay_s_mean = mean_s;
+        self.simulated_delay_s_variance = variance_s;
     }
 
     /// Configures the damping actuator of the ball.
@@ -401,7 +417,7 @@ impl FuzbAISimulator {
             return;
         }
 
-        for _ in 0..(self.simulated_delay_s / self.sample_steps as f64 / LOW_TIMESTEP).ceil() as usize {
+        for _ in 0..(self.simulated_delay_s_mean / self.sample_steps as f64 / LOW_TIMESTEP).ceil() as usize {
             self.current_time += LOW_TIMESTEP;
             self.sample_state();
         }
@@ -664,11 +680,12 @@ impl FuzbAISimulator {
         internal_step_factor: usize,
         sample_steps: usize,
         realtime: bool,
-        simulated_delay_s: f64,
+        simulated_delay_s_mean: f64,
+        simulated_delay_s_variance: f64,
         model_path: Option<&str>,
         visual_config: VisualConfig,
     ) -> Self {
-        assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larger than {MAX_DELAY_S}");
+        assert!(simulated_delay_s_mean <= MAX_DELAY_S, "simulated_delay_s can't be larger than {MAX_DELAY_S}");
         assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
 
         let model = G_MJ_MODEL.get_or_init(|| {
@@ -744,7 +761,8 @@ impl FuzbAISimulator {
         );
 
         Self {
-            internal_step_factor, sample_steps, simulated_delay_s, visual_config, realtime,
+            internal_step_factor, sample_steps, simulated_delay_s_mean, simulated_delay_s_variance,
+            visual_config, realtime,
             mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
             mj_red_goal_geom_id, mj_blue_goal_geom_id,
             delayed_memory: VecDeque::new(),
