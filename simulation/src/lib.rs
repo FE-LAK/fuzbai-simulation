@@ -334,7 +334,7 @@ impl FuzbAISimulator {
     /// To use the constructor-set delay (at initialization), pass [`None`].
     pub fn delayed_observation(&self, team: PlayerTeam, delay: Option<f64>)  -> ObservationType {
         // const 
-        static DIST: std::sync::LazyLock<Uniform<f64>> = std::sync::LazyLock::new(|| Uniform::new(0.0, 1.0).unwrap());
+        static DIST: std::sync::LazyLock<Uniform<f64>> = std::sync::LazyLock::new(|| Uniform::new(-1.0, 1.0).unwrap());
 
         let delay = delay.unwrap_or_else(|| {
             let mut rng = rand::rng();
@@ -342,7 +342,7 @@ impl FuzbAISimulator {
             self.simulated_delay_s_mean + self.simulated_delay_s_variance * eps
         });
 
-        if delay == 0.0 || self.delayed_memory.is_empty() {
+        if delay <= 0.0 || self.delayed_memory.is_empty() {
             return self.observation(team);
         }
 
