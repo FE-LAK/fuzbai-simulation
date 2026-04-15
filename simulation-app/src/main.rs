@@ -24,6 +24,9 @@ mod http;
 
 const EXPIRED_BALL_POSITION: [f64; 3] = [605.0, -100.0, 100.0];
 
+/// Default value of observation delay.
+const DEFAULT_DELAY_S: f64 = 0.055;
+
 // Define global linkage for a MuJoCo error handler. This is redefined (from MuJoCo-rs's implementation)
 // to allow C-unwind, so panics can be triggered inside the handler.
 
@@ -74,6 +77,10 @@ struct Cli {
     /// Host address for the management server.
     #[arg(long, default_value = DEFAULT_MANAGEMENT_HOST)]
     management_host: String,
+
+    /// Length of the observation delay in seconds.
+    #[arg(long, default_value_t = DEFAULT_DELAY_S)]
+    delay_s: f64
 }
 
 fn main() {
@@ -96,6 +103,7 @@ fn main() {
     let port_management = cli.management_port;
     let team_host = cli.team_host;
     let management_host = cli.management_host;
+    let delay_s = cli.delay_s;
 
     /* Initialize states for each team */
     let team_states = [
@@ -139,12 +147,12 @@ fn main() {
     }).unwrap();
 
     /* Define simulation factory */
-    let sim_factory = |init_viewer| {
+    let sim_factory = move |init_viewer| {
         FuzbAISimulator::new(
             1, // internal_step_factor: .step_simulation() = N * (2 ms)
             5, // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
             true,
-            0.055,
+            delay_s,
             None,
             VisualConfig::new(
                 0, false,
