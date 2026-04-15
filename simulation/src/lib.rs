@@ -536,8 +536,14 @@ impl FuzbAISimulator {
 
             if self.realtime {
                 const SLEEP_DURATION: Duration = Duration::from_micros((LOW_TIMESTEP * 1e6).round() as u64);
-                while t_start.elapsed() < SLEEP_DURATION {   // Accurate sleep
+                
+                // On Linux platforms, the timers are significantly more accurate than on Windows
+                // so we can afford to sleep and thus not burn the CPU whilst preserving precision.
+                #[cfg(target_os = "linux")]
+                std::thread::sleep(const { Duration::from_micros(SLEEP_DURATION.as_micros() as u64 / 4) });
 
+                while t_start.elapsed() < SLEEP_DURATION {   // Accurate sleep
+                    std::hint::spin_loop();
                 }
             }
         }
