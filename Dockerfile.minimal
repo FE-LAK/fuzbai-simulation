@@ -12,7 +12,7 @@ RUN echo "keyboard-configuration  keyboard-configuration/layoutcode string us" |
 # Build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget=1.21.2-2ubuntu1.1 \
-    curl=7.81.0-1ubuntu1.21 \
+    curl \
     build-essential=12.9ubuntu3 \
     ca-certificates=20240203~22.04.1 && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* 
