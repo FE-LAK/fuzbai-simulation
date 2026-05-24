@@ -32,7 +32,7 @@ fn physics(mut sim: FuzbAISimulator) {
         let obs = sim.delayed_observation(
             PlayerTeam::Red, // Team
             None             // Delay override. When None is passed,
-                             // delay will be equal to the value of simulated_delay_s (passed in constructor).
+                             // delay will be sampled based on simulated_delay_s_mean and simulated_delay_s_variance (passed in constructor).
         );
 
         // Set motor commands
@@ -73,7 +73,8 @@ fn main() {
         10, // internal_step_factor: .step_simulation() = N * (2 ms)
         5,  // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
         true, // realtime
-        0.055, // simulated_delay_s
+        0.055, // simulated_delay_s_mean
+        0.0,   // simulated_delay_s_variance
         None, // model_path
         VisualConfig::new(
             0,     // trace_length

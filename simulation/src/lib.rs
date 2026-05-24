@@ -140,7 +140,9 @@ pub struct FuzbAISimulator {
     // Parameter data
     internal_step_factor: usize,
     sample_steps: usize,
-    simulated_delay_s: f64,
+    simulated_delay_s_mean: f64,
+    simulated_delay_s_variance: f64,
+
     visual_config: VisualConfig,
     realtime: bool,
 
@@ -207,7 +209,11 @@ pub struct FuzbAISimulator {
     rot_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
 
     /* Visualization */
-    visualizer: Visualizer<&'static MjModel>
+    visualizer: Visualizer<&'static MjModel>,
+
+    /* Real-world discrepancy simulation */
+    ball_x_error: f64,
+    ball_y_error: f64,
 }
 
 
@@ -247,9 +253,14 @@ impl FuzbAISimulator {
         self.collision_indices
     }
 
-    /// Returns the configured simulated delay (in seconds).
-    pub fn simulated_delay_s(&self) -> f64 {
-        self.simulated_delay_s
+    /// Returns the configured simulated delay mean (in seconds).
+    pub fn simulated_delay_s_mean(&self) -> f64 {
+        self.simulated_delay_s_mean
+    }
+
+    /// Returns the configured simulated delay variance (in seconds).
+    pub fn simulated_delay_s_variance(&self) -> f64 {
+        self.simulated_delay_s_variance
     }
 
     /// Checks if the viewer is still running.
@@ -322,8 +333,17 @@ impl FuzbAISimulator {
     /// The delay can be optionally specified by `delay`.
     /// To use the constructor-set delay (at initialization), pass [`None`].
     pub fn delayed_observation(&self, team: PlayerTeam, delay: Option<f64>)  -> ObservationType {
-        let delay = delay.unwrap_or(self.simulated_delay_s);
-        if delay == 0.0 || self.delayed_memory.is_empty() {
+        let delay = delay.unwrap_or_else(|| {
+            if self.simulated_delay_s_variance == 0.0 {
+                return self.simulated_delay_s_mean;
+            }
+            static DIST: std::sync::LazyLock<Uniform<f64>> = std::sync::LazyLock::new(|| Uniform::new(-1.0, 1.0).unwrap());
+            let mut rng = rand::rng();
+            let eps = DIST.sample(&mut rng);
+            self.simulated_delay_s_mean + self.simulated_delay_s_variance * eps
+        });
+
+        if delay <= 0.0 || self.delayed_memory.is_empty() {
             return self.observation(team);
         }
 
@@ -344,9 +364,10 @@ impl FuzbAISimulator {
         }
     }
 
-    /// Sets the simulated delay (in seconds) to `simulated_delay_s`.
-    pub fn set_simulated_delay(&mut self, simulated_delay_s: f64) {
-        self.simulated_delay_s = simulated_delay_s;
+    /// Sets the simulated delay mean (in seconds) to `mean_s` and variance (in seconds) to `variance_s`.
+    pub fn set_simulated_delay(&mut self, mean_s: f64, variance_s: f64) {
+        self.simulated_delay_s_mean = mean_s;
+        self.simulated_delay_s_variance = variance_s;
     }
 
     /// Configures the damping actuator of the ball.
@@ -384,6 +405,13 @@ impl FuzbAISimulator {
         self.mj_data.step();
     }
 
+    pub fn set_calibration_error(&mut self, extension: f64, rotation: f64, ball_x: f64, ball_y: f64) {
+        self.trans_motor_ctrl.set_calibration_error(extension);
+        self.rot_motor_ctrl.set_calibration_error(rotation);
+        self.ball_x_error = ball_x;
+        self.ball_y_error = ball_y;
+    }
+
     /// Configures whether the specific `team` should obtain commands externally (`enable` = `true`)
     /// or internally (`enable` = `false`, the agent is stored within the simulation).
     pub fn set_external_mode(&mut self, team: PlayerTeam, enable: bool) {
@@ -401,8 +429,7 @@ impl FuzbAISimulator {
             return;
         }
 
-        for _ in 0..(self.simulated_delay_s / self.sample_steps as f64 / LOW_TIMESTEP).ceil() as usize {
-            self.current_time += LOW_TIMESTEP;
+        for _ in 0..(self.simulated_delay_s_mean / self.sample_steps as f64 / LOW_TIMESTEP).ceil() as usize {
             self.sample_state();
         }
     }
@@ -615,11 +642,12 @@ impl FuzbAISimulator {
         internal_step_factor: usize,
         sample_steps: usize,
         realtime: bool,
-        simulated_delay_s: f64,
+        simulated_delay_s_mean: f64,
+        simulated_delay_s_variance: f64,
         model_path: Option<&str>,
-        visual_config: VisualConfig
+        visual_config: VisualConfig,
     ) -> Self {
-        Self::new(internal_step_factor, sample_steps, realtime, simulated_delay_s, model_path, visual_config)
+        Self::new(internal_step_factor, sample_steps, realtime, simulated_delay_s_mean, simulated_delay_s_variance, model_path, visual_config)
     }
 
     #[cfg(feature = "python-bindings")]
@@ -670,11 +698,12 @@ impl FuzbAISimulator {
         internal_step_factor: usize,
         sample_steps: usize,
         realtime: bool,
-        simulated_delay_s: f64,
+        simulated_delay_s_mean: f64,
+        simulated_delay_s_variance: f64,
         model_path: Option<&str>,
         visual_config: VisualConfig,
     ) -> Self {
-        assert!(simulated_delay_s <= MAX_DELAY_S, "simulated_delay_s can't be larger than {MAX_DELAY_S}");
+        assert!(simulated_delay_s_mean <= MAX_DELAY_S, "simulated_delay_s_mean can't be larger than {MAX_DELAY_S}");
         assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
 
         let model = G_MJ_MODEL.get_or_init(|| {
@@ -750,7 +779,8 @@ impl FuzbAISimulator {
         );
 
         Self {
-            internal_step_factor, sample_steps, simulated_delay_s, visual_config, realtime,
+            internal_step_factor, sample_steps, simulated_delay_s_mean, simulated_delay_s_variance,
+            visual_config, realtime,
             mj_data, mj_data_joint_ball, trans_motor_ctrl, rot_motor_ctrl,
             mj_red_goal_geom_id, mj_blue_goal_geom_id,
             delayed_memory: VecDeque::new(),
@@ -762,7 +792,8 @@ impl FuzbAISimulator {
             pending_motor_cmd_red: Vec::new(), pending_motor_cmd_blue: Vec::new(),
             red_builtin_player, blue_builtin_player,
             mj_data_act_ball_damp_x, mj_data_act_ball_damp_y,
-            visualizer: Visualizer::new(trace_length)
+            visualizer: Visualizer::new(trace_length),
+            ball_x_error: 0.0, ball_y_error: 0.0
         }
     }
 
@@ -945,13 +976,20 @@ impl FuzbAISimulator {
         let dist = Uniform::new(0.0, 1.0).unwrap();
         let mut rng = rand::rng();
 
-        ball_x  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE;
-        ball_y  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE;
+        ball_x  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE + self.ball_x_error;
+        ball_y  += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_POSITION_NOISE + self.ball_y_error;
         ball_vx += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_VELOCITY_NOISE;
         ball_vy += (dist.sample(&mut rng) - 0.5) * 2.0 * BALL_VELOCITY_NOISE;
 
-        rod_positions = std::array::from_fn(|i| (rod_positions[i] + (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_TRANS_NOISE).clamp(0.0, 1.0));
-        rod_rotations = std::array::from_fn(|i| (rod_rotations[i] + (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_ROT_NOISE).clamp(-64.0, 64.0));
+        rod_positions = std::array::from_fn(|i| (
+            rod_positions[i] +
+            (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_TRANS_NOISE
+        ).clamp(0.0, 1.0));
+
+        rod_rotations = std::array::from_fn(|i| (
+            rod_rotations[i] +
+            (dist.sample(&mut rng) - 0.5) * 2.0 * ROD_ROT_NOISE
+        ).clamp(-64.0, 64.0));
 
         (ball_x, ball_y, ball_vx, ball_vy, rod_positions, rod_rotations)
     }

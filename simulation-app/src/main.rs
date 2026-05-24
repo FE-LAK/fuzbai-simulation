@@ -152,7 +152,8 @@ fn main() {
             1, // internal_step_factor: .step_simulation() = N * (2 ms)
             5, // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
             true,
-            delay_s,
+            delay_s, // simulated_delay_s_mean
+            0.0,   // simulated_delay_s_variance
             None,
             VisualConfig::new(
                 0, false,
