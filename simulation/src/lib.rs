@@ -363,7 +363,7 @@ impl FuzbAISimulator {
         }
     }
 
-    /// Sets the simulated delay (in seconds) to `simulated_delay_s`.
+    /// Sets the simulated delay mean (in seconds) to `mean_s` and variance (in seconds) to `variance_s`.
     pub fn set_simulated_delay(&mut self, mean_s: f64, variance_s: f64) {
         self.simulated_delay_s_mean = mean_s;
         self.simulated_delay_s_variance = variance_s;
@@ -703,7 +703,7 @@ impl FuzbAISimulator {
         model_path: Option<&str>,
         visual_config: VisualConfig,
     ) -> Self {
-        assert!(simulated_delay_s_mean <= MAX_DELAY_S, "simulated_delay_s can't be larger than {MAX_DELAY_S}");
+        assert!(simulated_delay_s_mean <= MAX_DELAY_S, "simulated_delay_s_mean can't be larger than {MAX_DELAY_S}");
         assert!(visual_config.trace_length <= MAX_TRACE_BUFFER_LEN, "trace_length must be smaller than {MAX_TRACE_BUFFER_LEN}");
 
         let model = G_MJ_MODEL.get_or_init(|| {

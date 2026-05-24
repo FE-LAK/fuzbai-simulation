@@ -18,7 +18,7 @@ def physics(simulator: fs.FuzbAISimulator):
         obs = simulator.delayed_observation(
             fs.PlayerTeam.Red,  # Team
             None  # Delay override. When None is passed,
-                  # delay will be equal to the value of simulated_delay_s (passed in constructor).
+                  # delay will be sampled based on simulated_delay_s_mean and simulated_delay_s_variance (passed in constructor).
         )
 
         # Set motor commands
@@ -54,7 +54,8 @@ sim = fs.FuzbAISimulator(
     # sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
     internal_step_factor=10, sample_steps=5,
     realtime=True,
-    simulated_delay_s=0.055,
+    simulated_delay_s_mean=0.055,
+    simulated_delay_s_variance=0.0,
     model_path=None,
     visual_config=fs.VisualConfig(
         trace_length=0, trace_ball=False,
