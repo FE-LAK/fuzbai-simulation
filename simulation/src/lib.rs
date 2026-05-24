@@ -430,7 +430,6 @@ impl FuzbAISimulator {
         }
 
         for _ in 0..(self.simulated_delay_s_mean / self.sample_steps as f64 / LOW_TIMESTEP).ceil() as usize {
-            self.current_time += LOW_TIMESTEP;
             self.sample_state();
         }
     }
