@@ -20,10 +20,12 @@ pub struct Visualizer<M: Deref<Target = MjModel>> {
 }
 
 impl<M: Deref<Target = MjModel>> Visualizer<M> {
+    /// Constructs a new [`Visualizer`] retaining at most `trace_length` steps of history.
     pub fn new(trace_length: usize) -> Self {
         Self {trace_buffer: VecDeque::new(), trace_length, phantom: PhantomData}
     }
 
+    /// Appends `positions` to the trace buffer, evicting the oldest entry when at capacity.
     #[inline]
     pub fn sample_trace(&mut self, positions: TraceType) {
         if self.trace_buffer.len() >= self.trace_length {
@@ -32,11 +34,15 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
         self.trace_buffer.push_back(positions);
     }
 
+    /// Clears all recorded trace entries.
     #[inline]
     pub fn clear_trace(&mut self) {
         self.trace_buffer.clear();
     }
 
+    /// Renders the buffered position trace to `scene`. Ball capsules are drawn when
+    /// `ball_trace` is `true`; rod player meshes are drawn for rods whose bit is set in
+    /// `trace_rod_mask`.
     pub fn render_trace(&mut self, scene: &mut MjvScene<M>, ball_trace: bool, trace_rod_mask: u64) {
         let mut ball_rgba: [f32; 4];
         let mut rod_rgba: [f32; 4];
@@ -99,6 +105,8 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
         );        
     }
 
+    /// Renders rod position/rotation estimates to `scene`. Each item in `pos_rot` is
+    /// `(rod_index, translation, rotation, player_mask)` using the same units as the observation.
     pub fn render_rods_estimates<T>(scene: &mut MjvScene<M>, pos_rot: T, color: Option<RGBAType>)
         where T: IntoIterator, T::Item: Borrow<(usize, f64, f64, u8)>,
     {

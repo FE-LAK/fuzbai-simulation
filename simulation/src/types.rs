@@ -1,4 +1,5 @@
-/// Type definitions
+//! Type definitions
+
 /// Represents the return type of [`FuzbAISimulator::observation`].
 pub type ObservationType = (f64, f64, f64, f64, [f64;8], [f64;8]);
 /// Represents a 3D Cartesian position

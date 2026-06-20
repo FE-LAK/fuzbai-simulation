@@ -1,4 +1,5 @@
 use mujoco_rs::viewer::{MjViewer, ViewerSharedState};
+use mujoco_rs::renderer::MjRenderer;
 use mujoco_rs::util::LockUnpoison;
 use mujoco_rs::prelude::*;
 
@@ -10,6 +11,7 @@ pub use mujoco_rs::viewer::egui;
 
 use demo_fuzbai_agent::Agent as BuiltInAgent;
 
+use std::num::NonZero;
 use std::sync::{Arc, OnceLock, Mutex};
 use std::time::{Instant, Duration};
 use std::{collections::VecDeque};
@@ -45,6 +47,9 @@ thread_local! {
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
     static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
+
+    /// Offscreen rendering. Similar semantics to the viewer.
+    static G_MJ_RENDERER: RefCell<Option<MjRenderer<&'static MjModel>>> = RefCell::new(None);
 }
 static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
 
@@ -85,24 +90,35 @@ impl PlayerTeam {
 
 
 /* Struct definitions */
-
 /// Specifies visualization related parameters of 
 /// the [`FuzbAISimulator`] struct.
 #[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
 #[derive(Clone)]
 pub struct VisualConfig {
+    /// Maximum number of past high-level steps to retain in the trace.
     pub trace_length: usize,
+    /// Whether to trace the ball
     pub trace_ball: bool,
+    /// Mask that determines which players on each rod will be displayed in the trace.
+    /// There are 8 bytes, each byte belonging to one rod, from the red goalkeeper forward.
+    /// Each rod thus takes 8 bits (one bit per player).
     pub trace_rod_mask: u64,
+    /// Enable the onscreen viewer.
     pub enable_viewer: bool,
+    /// Enable the offscreen renderer. The resolution is determined by the offscreen buffer
+    /// configuration through the table model.
+    pub enable_renderer: bool,
 }
 
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl VisualConfig {
     #[new]
-    fn py_new(trace_length: usize, trace_ball: bool, trace_rod_mask: u64, enable_viewer: bool) -> Self {
-        Self::new(trace_length, trace_ball, trace_rod_mask, enable_viewer)
+    fn py_new(
+        trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
+        enable_viewer: bool, enable_renderer: bool
+    ) -> Self {
+        Self::new(trace_length, trace_ball, trace_rod_mask, enable_viewer, enable_renderer)
     }
 
     #[staticmethod]
@@ -115,9 +131,10 @@ impl VisualConfig {
 impl VisualConfig {
     /// Construct a new [`VisualConfig`].
     pub fn new(
-        trace_length: usize, trace_ball: bool, trace_rod_mask: u64, enable_viewer: bool
+        trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
+        enable_viewer: bool, enable_renderer: bool
     ) -> Self {
-        VisualConfig {trace_length, trace_ball, trace_rod_mask, enable_viewer}
+        VisualConfig {trace_length, trace_ball, trace_rod_mask, enable_viewer, enable_renderer}
     }
 
     /// Creates the mask needed for [`VisualConfig::new`].
@@ -203,7 +220,9 @@ pub struct FuzbAISimulator {
     /* Player control */
     pending_motor_cmd_red: Vec<MotorCommand>,
     pending_motor_cmd_blue: Vec<MotorCommand>,
+    /// Built-in agent controlling the red team when external mode is disabled.
     pub red_builtin_player: BuiltInAgent,
+    /// Built-in agent controlling the blue team when external mode is disabled.
     pub blue_builtin_player: BuiltInAgent,
     trans_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
     rot_motor_ctrl: TrapezoidMotorSystem<&'static MjModel>,
@@ -405,6 +424,9 @@ impl FuzbAISimulator {
         self.mj_data.step();
     }
 
+    /// Sets simulated calibration errors for the translational (`extension`) and rotational
+    /// (`rotation`) motor systems, and a positional offset for the ball (`ball_x`, `ball_y`
+    /// in millimeters).
     pub fn set_calibration_error(&mut self, extension: f64, rotation: f64, ball_x: f64, ball_y: f64) {
         self.trans_motor_ctrl.set_calibration_error(extension);
         self.rot_motor_ctrl.set_calibration_error(rotation);
@@ -797,11 +819,15 @@ impl FuzbAISimulator {
         }
     }
 
+    /// Converts a position from the red team's local coordinate system (mm) to MuJoCo's
+    /// global coordinate system (m).
     #[inline]
     pub fn local_to_global_position(position: XYZType) -> XYZType {
         [(position[0] + 115.0) / 1000.0, (727.0 - position[1]) / 1000.0, position[2] / 1000.0 + Z_FIELD]
     }
 
+    /// Converts a velocity from the red team's local coordinate system to MuJoCo's global
+    /// coordinate system (m/s). Negates the y-component to account for axis inversion.
     #[inline]
     pub fn local_to_global_velocity(velocity: XYZType) -> XYZType {
         [velocity[0], -velocity[1], velocity[2]]
@@ -863,9 +889,8 @@ impl FuzbAISimulator {
         };
     }
 
-    /// Sets new motor (rod movement) commands for the specified `team`.
-    /// The commands will be applied at the next call to [`step_simulation`](FuzbAISimulator::step_simulation)
-    /// Sets motor commands for a specific team.
+    /// Sets motor (rod movement) commands for the specified `team`.
+    /// The commands will be applied at the next call to [`step_simulation`](FuzbAISimulator::step_simulation).
     ///
     /// ### Parameters
     /// - `commands`: A slice of [`MotorCommand`] defining targets for the rods.
@@ -1056,6 +1081,7 @@ impl ViewerProxy {
         Self
     }
 
+    /// Returns `true` if the viewer window is currently open and rendering.
     pub fn running(&self) -> bool {
         G_VIEWER_SHARED_STATE.get().is_some_and(
             |state| state.lock_unpoison().running()
@@ -1081,6 +1107,7 @@ impl ViewerProxy {
 
 /// Rust-only methods.
 impl ViewerProxy {
+    /// Renders a single frame. No-op if no viewer is active.
     pub fn render(&self) {
         G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
             if let Some(viewer) = maybe_viewer {
@@ -1089,6 +1116,7 @@ impl ViewerProxy {
         })
     }
 
+    /// Runs the viewer render loop until the window is closed.
     pub fn render_loop(&self) {
         G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
             if let Some(viewer) = maybe_viewer {
@@ -1099,6 +1127,7 @@ impl ViewerProxy {
         })
     }
 
+    /// Calls `fn_once` with the egui context, allowing immediate-mode UI drawing for one frame.
     pub fn with_egui_context<F: FnOnce(&egui::Context)>(&self, fn_once: F) {
         G_MJ_VIEWER.with_borrow_mut(|maybe_viewer| {
             if let Some(viewer) = maybe_viewer {
@@ -1107,6 +1136,7 @@ impl ViewerProxy {
         });
     }
 
+    /// Registers a persistent UI callback invoked with the egui context every frame.
     pub fn add_ui_callback_detached<F>(&self, callback: F)
     where
         F: FnMut(&egui::Context) + 'static

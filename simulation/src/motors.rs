@@ -5,6 +5,8 @@ use mujoco_rs::wrappers::*;
 use crate::constant::LOW_TIMESTEP;
 
 
+/// Motor controller implementing a trapezoidal velocity profile for position tracking.
+/// Drives 8 actuators simultaneously, computing the required torque each simulation sub-step.
 pub(crate) struct TrapezoidMotorSystem<M: Deref<Target = MjModel>> {
     kp: [f64; 8],
     kd: [f64; 8],
@@ -34,6 +36,7 @@ pub(crate) struct TrapezoidMotorSystem<M: Deref<Target = MjModel>> {
 }
 
 impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
+    /// Constructs a new [`TrapezoidMotorSystem`].
     pub fn new(
         kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8],
         stop_threshold: f64, dead_band: [f64; 8],
@@ -52,6 +55,7 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
         }
     }
 
+    /// Updates the PD gains and velocity/acceleration limits for actuator `act_id`.
     pub fn set_params(&mut self, act_id: usize, kp: f64, kd: f64, max_vel: f64, max_acc: f64) {
         self.kp[act_id] = kp;
         self.kd[act_id] = kd;
@@ -117,22 +121,26 @@ impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
         }
     }
 
+    /// Forcefully sets the joint position of actuator `act_id` to `value`.
     #[inline]
     pub fn set_qpos(&mut self, data: &mut MjData<M>, act_id: usize, value: f64) {
         self.joint_info[act_id].view_mut(data).qpos[0] = value;
     }
 
+    /// Forcefully sets the joint velocity of actuator `act_id` to `value`.
     #[inline]
     #[allow(unused)]
     pub fn set_qvel(&mut self, data: &mut MjData<M>, act_id: usize, value: f64) {
         self.joint_info[act_id].view_mut(data).qvel[0] = value;
     }
 
+    /// Returns the joint position of actuator `act_id`, offset by the calibration error.
     #[inline]
     pub fn qpos(&self, data: &MjData<M>, act_id: usize) -> f64 {
         self.joint_info[act_id].view(data).qpos[0] + self.calibration_error
     }
 
+    /// Returns the joint velocity of actuator `act_id`.
     #[inline]
     pub fn qvel(&self, data: &MjData<M>, act_id: usize) -> f64 {
         self.joint_info[act_id].view(data).qvel[0]

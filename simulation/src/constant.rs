@@ -48,8 +48,11 @@ pub(crate) const ROD_POSITIONS: [XYZType; 8] = [
 // Some player constants
 /// Travel (in meters) of each rod.
 pub const ROD_TRAVELS: [f64; 8] = [0.190, 0.356, 0.180, 0.116, 0.116, 0.180, 0.356, 0.190];
+/// Y-offset (in meters) from the rod origin to the first player's center.
 pub(crate) const ROD_FIRST_OFFSET: [f64; 8] = [0.258, 0.055, 0.055, 0.055, 0.055, 0.055, 0.055, 0.258];
+/// Y-spacing (in meters) between adjacent players on the same rod.
 pub(crate) const ROD_SPACING: [f64; 8] = [0.0, 0.238, 0.208, 0.118, 0.118, 0.208, 0.238, 0.0];
+/// Number of players on each rod, from the red goalkeeper to the blue goalkeeper.
 pub(crate) const ROD_N_PLAYERS: [usize; 8] = [1, 2, 3, 5, 5, 3, 2, 1];
 
 /// Represents the mesh ID of the player's upper body.
@@ -60,7 +63,11 @@ pub(crate) const ROD_MESH_LOWER_PLAYER_ID: i32 = 9;
 // The mesh is in a different coordinate system than the one MuJoCo creates for the geom.
 // Visualizing estimates requires giving the rotation matrix for rotation measured inside the MuJoCo's
 // geom system, while the actual position must match the mesh's original system.
+/// Z-offset (in the MuJoCo geom frame) of the upper player mesh center from the rod's axis,
+/// used when rendering rod estimates.
 pub(crate) const ROD_ESTIMATE_FRAME_UPPER_OFFSET: f64 = -0.033778597213357395;
+/// Z-offset (in the MuJoCo geom frame) of the lower player mesh center from the rod's axis,
+/// used when rendering rod estimates.
 pub(crate) const ROD_ESTIMATE_FRAME_LOWER_OFFSET: f64 = -0.06625961001214105;
 
 /// The color of rod estimates.
@@ -181,4 +188,5 @@ pub const BALL_RADIUS_M: f64 = 0.0175;
 pub const DEFAULT_BALL_ESTIMATE_RGBA: RGBAType = [1.0, 1.0, 0.0, 1.0];
 
 // Error messages
+/// Error message used when a slice pattern requires more elements than provided.
 pub const E_NOT_ENOUGH_ELEMENTS: &str = "not enough elements";

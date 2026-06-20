@@ -1670,6 +1670,7 @@ dependencies = [
  "glutin-winit",
  "paste",
  "pkg-config",
+ "png",
  "winit",
 ]
 
