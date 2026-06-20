@@ -17,8 +17,8 @@
     <visual>
         <scale framelength="0.2" framewidth="0.01" actuatorwidth="0.02" jointwidth="0.01"/>
 
-        <!-- OpenGL buffer size -->
-        <global offwidth="1920" offheight="1080"/>
+        <!-- OpenGL buffer size (4K UHD, 16:9) -->
+        <global offwidth="3840" offheight="2160"/>
     </visual>
 
     <option integrator="implicitfast" cone="elliptic"/>

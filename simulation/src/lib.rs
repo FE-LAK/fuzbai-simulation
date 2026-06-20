@@ -15,11 +15,15 @@ use std::sync::{Arc, OnceLock, Mutex};
 use std::time::{Instant, Duration};
 use std::{collections::VecDeque};
 use std::cell::RefCell;
+use std::path::Path;
 use std::fmt::Debug;
 use core::f64;
+use std::io;
 
 use rand::distr::{Distribution, Uniform};
 
+#[cfg(feature = "python-bindings")]
+use pyo3::types::PyBytes;
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
@@ -104,21 +108,21 @@ pub struct VisualConfig {
     pub trace_rod_mask: u64,
     /// Enable the onscreen viewer.
     pub enable_viewer: bool,
-    /// Enable the offscreen renderer. The resolution is determined by the offscreen buffer
-    /// configuration through the table model.
-    pub enable_renderer: bool,
+    /// Configuration of the offscreen renderer (e.g., resolution).
+    /// `Some(..)` enables the renderer with the given configuration, `None` disables it.
+    pub renderer_config: Option<RendererConfig>,
 }
 
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl VisualConfig {
     #[new]
-    #[pyo3(signature = (trace_length=0, trace_ball=false, trace_rod_mask=0, enable_viewer=false, enable_renderer=false))]
+    #[pyo3(signature = (trace_length=0, trace_ball=false, trace_rod_mask=0, enable_viewer=false, renderer_config=None))]
     fn py_new(
         trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
-        enable_viewer: bool, enable_renderer: bool
+        enable_viewer: bool, renderer_config: Option<RendererConfig>,
     ) -> Self {
-        VisualConfig { trace_length, trace_ball, trace_rod_mask, enable_viewer, enable_renderer }
+        VisualConfig { trace_length, trace_ball, trace_rod_mask, enable_viewer, renderer_config }
     }
 
     #[staticmethod]
@@ -153,7 +157,7 @@ pub struct VisualConfigBuilder {
     trace_ball: bool,
     trace_rod_mask: u64,
     enable_viewer: bool,
-    enable_renderer: bool,
+    renderer_config: Option<RendererConfig>,
 }
 
 impl VisualConfigBuilder {
@@ -177,8 +181,8 @@ impl VisualConfigBuilder {
         self
     }
 
-    pub fn enable_renderer(mut self, v: bool) -> Self {
-        self.enable_renderer = v;
+    pub fn renderer_config(mut self, config: RendererConfig) -> Self {
+        self.renderer_config = Some(config);
         self
     }
 
@@ -188,7 +192,64 @@ impl VisualConfigBuilder {
             trace_ball: self.trace_ball,
             trace_rod_mask: self.trace_rod_mask,
             enable_viewer: self.enable_viewer,
-            enable_renderer: self.enable_renderer,
+            renderer_config: self.renderer_config,
+        }
+    }
+}
+
+
+/// Specifies parameters of the offscreen renderer used by [`FuzbAISimulator`].
+#[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
+#[derive(Clone, Default)]
+pub struct RendererConfig {
+    /// Rendered image width in pixels. Must be less or equal to the model's offscreen buffer
+    /// width. A value of `0` falls back to the model's configured offscreen buffer width.
+    pub width: usize,
+    /// Rendered image height in pixels. Must be less or equal to the model's offscreen buffer
+    /// height. A value of `0` falls back to the model's configured offscreen buffer height.
+    pub height: usize,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl RendererConfig {
+    #[new]
+    #[pyo3(signature = (width=0, height=0))]
+    fn py_new(width: usize, height: usize) -> Self {
+        RendererConfig { width, height }
+    }
+}
+
+impl RendererConfig {
+    /// Returns a builder for [`RendererConfig`] with the resolution defaulting to the
+    /// model's offscreen buffer size.
+    pub fn builder() -> RendererConfigBuilder {
+        RendererConfigBuilder::default()
+    }
+}
+
+/// Builder for [`RendererConfig`].
+#[derive(Default)]
+pub struct RendererConfigBuilder {
+    width: usize,
+    height: usize,
+}
+
+impl RendererConfigBuilder {
+    pub fn width(mut self, width: usize) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub fn height(mut self, height: usize) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub fn build(self) -> RendererConfig {
+        RendererConfig {
+            width: self.width,
+            height: self.height,
         }
     }
 }
@@ -564,6 +625,23 @@ impl FuzbAISimulator {
         }
     }
 
+    /// Renders the current simulation state (including the configured trace) into the
+    /// offscreen renderer's image buffer. When the renderer is not enabled, this has no effect.
+    /// Use [`RendererProxy`] to access or save the rendered image.
+    ///
+    /// Like the renderer itself, this must be called on the same thread that constructed
+    /// the simulator.
+    pub fn sync_renderer(&mut self) {
+        G_MJ_RENDERER.with_borrow_mut(|maybe_renderer| {
+            if let Some(renderer) = maybe_renderer {
+                let scene = renderer.user_scene_mut();
+                scene.clear_geom();
+                self.visualizer.render_trace(scene, self.visual_config.trace_ball, self.visual_config.trace_rod_mask);
+                renderer.sync(&mut self.mj_data);
+            }
+        });
+    }
+
     /// Reset the simulation state.
     /// Specifically, this resets [`terminated`](FuzbAISimulator::terminated) and
     /// [`truncated`](FuzbAISimulator::truncated) flags, sets the simulation time to 0, clears the trace,
@@ -881,6 +959,23 @@ impl FuzbAISimulator {
                 }
                 else {
                     panic!("multiple realtime (with-rendering) simulations requested!")
+                }
+            });
+        };
+
+        if let Some(renderer_config) = &visual_config.renderer_config {
+            G_MJ_RENDERER.with(|slot| {
+                let mut borrow = slot.borrow_mut();
+                if borrow.is_none() {
+                    let r = mujoco_rs::renderer::MjRenderer::builder()
+                        .width(renderer_config.width as u32)
+                        .height(renderer_config.height as u32)
+                        .num_visual_user_geom((MAX_ESTIMATE_SCENE_USER_GEOM + trace_length * TRACE_GEOM_LEN) as u32)
+                    .build(model).expect("could not initialize the offscreen renderer");
+                    *borrow = Some(r);
+                }
+                else {
+                    panic!("multiple offscreen renderers requested!")
                 }
             });
         };
@@ -1266,6 +1361,74 @@ impl ViewerProxy {
 }
 
 
+/// Renderer proxy for controlling the offscreen renderer
+/// in an object-oriented fashion.
+/// It holds no storage as use of more than one renderer is not considered, nor
+/// does it make sense in any way.
+///
+/// The renderer's image buffer is updated by [`FuzbAISimulator::sync_renderer`];
+/// this proxy then provides access to the rendered image. Like the renderer itself,
+/// the proxy must be used on the same thread that constructed the simulator.
+#[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
+pub struct RendererProxy;
+
+#[cfg_attr(feature = "python-bindings", pymethods)]
+impl RendererProxy {
+    #[cfg(feature = "python-bindings")]
+    #[new]
+    fn py_new() -> Self {
+        Self
+    }
+
+    /// Returns `true` if the offscreen renderer is enabled and ready to render.
+    pub fn enabled(&self) -> bool {
+        G_MJ_RENDERER.with_borrow(|maybe_renderer| maybe_renderer.is_some())
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "rgb")]
+    fn py_rgb<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.rgb())
+    }
+
+    #[cfg(feature = "python-bindings")]
+    #[pyo3(name = "save_rgb")]
+    fn py_save_rgb(&self, path: &str) -> PyResult<()> {
+        self.save_rgb(path).map_err(Into::into)
+    }
+}
+
+/// Rust-only methods.
+impl RendererProxy {
+    /// Returns the last rendered image as a flattened, row-major RGB buffer
+    /// (`3 * width * height` bytes). Returns an empty vector when the renderer is disabled.
+    pub fn rgb(&self) -> Vec<u8> {
+        G_MJ_RENDERER.with_borrow(|maybe_renderer| {
+            maybe_renderer
+                .as_ref()
+                .and_then(|renderer| renderer.rgb_flat())
+                .map(|flat| flat.to_vec())
+                .unwrap_or_default()
+        })
+    }
+
+    /// Saves the last rendered image to `path` as a PNG.
+    /// # Errors
+    /// Returns [`io::ErrorKind::NotFound`] when the renderer is disabled, plus any error
+    /// encountered while writing the file.
+    pub fn save_rgb<T: AsRef<Path>>(&self, path: T) -> io::Result<()> {
+        G_MJ_RENDERER.with_borrow(|maybe_renderer| {
+            if let Some(renderer) = maybe_renderer {
+                renderer.save_rgb(path)
+            }
+            else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "the offscreen renderer is not enabled"))
+            }
+        })
+    }
+}
+
+
 #[cfg(feature = "python-bindings")]
 #[pymodule]
 /// Python module definition
@@ -1273,7 +1436,9 @@ fn fuzbai_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FuzbAISimulator>()?;
     m.add_class::<PlayerTeam>()?;
     m.add_class::<VisualConfig>()?;
+    m.add_class::<RendererConfig>()?;
     m.add_class::<ViewerProxy>()?;
+    m.add_class::<RendererProxy>()?;
     m.add("RED_INDICES", RED_INDICES)?;
     m.add("BLUE_INDICES", BLUE_INDICES)?;
     Ok(())
