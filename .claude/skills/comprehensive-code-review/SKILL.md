@@ -82,7 +82,7 @@ Agents must produce clean, professional output:
 ## Execution
 
 1. Spawn all 4 agents **in parallel** using the `task` tool with
-   `agent_type: "code-review"` and `model: "claude-sonnet-4.6"`.
+   `agent_type: "code-review"` and `model: "claude-sonnet-4-6"`.
 2. Each agent's prompt must:
    - Include the specific review category and focus areas from above.
    - Instruct the agent to explore the repository structure to find relevant

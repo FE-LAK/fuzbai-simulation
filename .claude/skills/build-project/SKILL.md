@@ -32,7 +32,7 @@ All scripts accept the same CLI flags:
 | `--python=y/n` | `n` | Build Python bindings via maturin (requires `python-bindings` feature) |
 | `--doc=y/n` | `n` | Build Rust documentation (includes Python binding docs) |
 | `--licenses=y/n` | `n` | Generate third-party license report (HTML) via cargo-about |
-| `--clean` | — | Delete `target/` directory and exit |
+| `--clean` | --- | Delete `target/` directory and exit |
 
 macOS additionally supports `--arch=native/arm64/x86_64/universal` (default: `universal`).
 
