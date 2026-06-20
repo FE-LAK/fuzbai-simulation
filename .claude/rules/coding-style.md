@@ -69,7 +69,6 @@ serialization library, or std vs. tokio), separate them with an empty line.
 
 ## Testing
 
-- When adding a new feature or fixing a bug, add a test for it if one does not already exist.
-- Tests must be correctness tests (verify behaviour is right), not build tests (verify it
-  compiles). A test that only calls a function and asserts no panic is not sufficient on its own.
-- Keep tests concise; avoid duplicating coverage that already exists in nearby tests.
+- Do not write any tests in the crates of this repository (`fuzbai-simulation/**`). Do not add
+  new test modules, `#[test]` functions, integration tests, or doctests, and do not extend
+  existing ones, unless the user explicitly requests it.
