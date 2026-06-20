@@ -19,7 +19,7 @@ enum FSMState {
 pub struct Rod {
     // Rod specific data
     drive_id: usize,
-    n_players: usize,
+    _n_players: usize,
     offset: f64,
     spacing: f64,
     travel: f64,
@@ -51,7 +51,7 @@ impl Rod {
     ) -> Self {
         Self {
             drive_id,
-            n_players,
+            _n_players: n_players,
             offset,
             spacing,
             travel,
@@ -85,7 +85,7 @@ impl Rod {
 /// Methods for class [`Rod`] that get exported to Python bindings.
 impl Rod {
     /// Perform a single step in time based on the latest state (parameters).
-    pub fn get_action(&mut self, ball_x: f64, ball_y: f64, ball_vx: f64, ball_vy: f64) -> (usize, f64, f64, f64, f64) {
+    pub fn get_action(&mut self, ball_x: f64, ball_y: f64, _ball_vx: f64, _ball_vy: f64) -> (usize, f64, f64, f64, f64) {
         // Calculate the needed rod extension.
         let mut error = 0.0;
         let mut min_abs = f64::INFINITY;
@@ -157,9 +157,4 @@ impl Rod {
         (self.drive_id, new_extension, rotation, ROD_VELOCITY_LINEAR, ROD_VELOCITY_ROTATIONAL)
     }
 
-    /// Resets the rod state variables.
-    pub fn reset(&mut self) {
-        self.fsm_state = FSMState::TrackBackBall;
-        self.main_timer.reset();
-    }
 }

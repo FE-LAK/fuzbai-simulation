@@ -37,6 +37,7 @@ pub(crate) struct TrapezoidMotorSystem<M: Deref<Target = MjModel>> {
 
 impl<M: Deref<Target = MjModel>> TrapezoidMotorSystem<M> {
     /// Constructs a new [`TrapezoidMotorSystem`].
+    #[allow(clippy::too_many_arguments)] // each parameter is a distinct physical motor control property
     pub fn new(
         kp: [f64; 8], kd: [f64; 8], max_velocity: [f64; 8], max_acceleration: [f64; 8],
         stop_threshold: f64, dead_band: [f64; 8],

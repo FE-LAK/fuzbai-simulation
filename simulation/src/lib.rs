@@ -11,7 +11,6 @@ pub use mujoco_rs::viewer::egui;
 
 use demo_fuzbai_agent::Agent as BuiltInAgent;
 
-use std::num::NonZero;
 use std::sync::{Arc, OnceLock, Mutex};
 use std::time::{Instant, Duration};
 use std::{collections::VecDeque};
@@ -46,10 +45,10 @@ thread_local! {
     /// Multiple viewers are not allowed (unless in a different process).
     /// This is a protection mechanism from accidentally launching multiple realtime
     /// simulations.
-    static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = RefCell::new(None);
+    static G_MJ_VIEWER: RefCell<Option<MjViewer<&'static MjModel>>> = const { RefCell::new(None) };
 
     /// Offscreen rendering. Similar semantics to the viewer.
-    static G_MJ_RENDERER: RefCell<Option<MjRenderer<&'static MjModel>>> = RefCell::new(None);
+    static G_MJ_RENDERER: RefCell<Option<MjRenderer<&'static MjModel>>> = const { RefCell::new(None) };
 }
 static G_VIEWER_SHARED_STATE: OnceLock<Arc<Mutex<ViewerSharedState<&'static MjModel>>>> = OnceLock::new();
 
@@ -93,7 +92,7 @@ impl PlayerTeam {
 /// Specifies visualization related parameters of 
 /// the [`FuzbAISimulator`] struct.
 #[cfg_attr(feature = "python-bindings", pyclass(module = "fuzbai_simulator"))]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct VisualConfig {
     /// Maximum number of past high-level steps to retain in the trace.
     pub trace_length: usize,
@@ -114,11 +113,12 @@ pub struct VisualConfig {
 #[pymethods]
 impl VisualConfig {
     #[new]
+    #[pyo3(signature = (trace_length=0, trace_ball=false, trace_rod_mask=0, enable_viewer=false, enable_renderer=false))]
     fn py_new(
         trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
         enable_viewer: bool, enable_renderer: bool
     ) -> Self {
-        Self::new(trace_length, trace_ball, trace_rod_mask, enable_viewer, enable_renderer)
+        VisualConfig { trace_length, trace_ball, trace_rod_mask, enable_viewer, enable_renderer }
     }
 
     #[staticmethod]
@@ -129,23 +129,67 @@ impl VisualConfig {
 }
 
 impl VisualConfig {
-    /// Construct a new [`VisualConfig`].
-    pub fn new(
-        trace_length: usize, trace_ball: bool, trace_rod_mask: u64,
-        enable_viewer: bool, enable_renderer: bool
-    ) -> Self {
-        VisualConfig {trace_length, trace_ball, trace_rod_mask, enable_viewer, enable_renderer}
+    /// Returns a builder for [`VisualConfig`] with all options defaulting to `false`/`0`.
+    pub fn builder() -> VisualConfigBuilder {
+        VisualConfigBuilder::default()
     }
 
-    /// Creates the mask needed for [`VisualConfig::new`].
+    /// Creates the mask for use with [`VisualConfigBuilder::trace_rod_mask`].
     /// To visualize multiple rods use the OR operator:
-    /// `player_mask(0, vec![0]) | player_mask(2, vec![0, 2])`.
+    /// `player_mask(0, &[0]) | player_mask(2, &[0, 2])`.
     pub fn player_mask(rod_index: usize, player_indices: &[usize]) -> u64 {
         let mut mask = 0;
         for index in player_indices {
             mask |= 1 << index;
         }
         mask << (rod_index * 8)
+    }
+}
+
+/// Builder for [`VisualConfig`].
+#[derive(Default)]
+pub struct VisualConfigBuilder {
+    trace_length: usize,
+    trace_ball: bool,
+    trace_rod_mask: u64,
+    enable_viewer: bool,
+    enable_renderer: bool,
+}
+
+impl VisualConfigBuilder {
+    pub fn trace_length(mut self, n: usize) -> Self {
+        self.trace_length = n;
+        self
+    }
+
+    pub fn trace_ball(mut self, v: bool) -> Self {
+        self.trace_ball = v;
+        self
+    }
+
+    pub fn trace_rod_mask(mut self, mask: u64) -> Self {
+        self.trace_rod_mask = mask;
+        self
+    }
+
+    pub fn enable_viewer(mut self, v: bool) -> Self {
+        self.enable_viewer = v;
+        self
+    }
+
+    pub fn enable_renderer(mut self, v: bool) -> Self {
+        self.enable_renderer = v;
+        self
+    }
+
+    pub fn build(self) -> VisualConfig {
+        VisualConfig {
+            trace_length: self.trace_length,
+            trace_ball: self.trace_ball,
+            trace_rod_mask: self.trace_rod_mask,
+            enable_viewer: self.enable_viewer,
+            enable_renderer: self.enable_renderer,
+        }
     }
 }
 
@@ -414,8 +458,8 @@ impl FuzbAISimulator {
 
         // rotation
         if let Some(rotations) = rotations {
-            for i in 0..8 {
-                pos = rotations[i] * 2.0 * std::f64::consts::PI;
+            for (i, &rot) in rotations.iter().enumerate() {
+                pos = rot * 2.0 * std::f64::consts::PI;
                 self.rot_motor_ctrl.set_qpos(&mut self.mj_data, i, pos);
                 self.rot_motor_ctrl.force_stop(i, &mut self.mj_data);
             }
@@ -479,14 +523,13 @@ impl FuzbAISimulator {
         }
         else {
             let mut rng = rand::rng();
-            let mut dist;
-            for i in 0..DEFAULT_BALL_NUDGE_VELOCITY_SCALE.len() {
-                if DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i] == 0.0 {
+            for (i, &scale) in DEFAULT_BALL_NUDGE_VELOCITY_SCALE.iter().enumerate() {
+                if scale == 0.0 {
                     ball_view.qvel[i] = 0.0;
                     continue;
                 }
 
-                dist = Uniform::new(-DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i], DEFAULT_BALL_NUDGE_VELOCITY_SCALE[i]).unwrap();
+                let dist = Uniform::new(-scale, scale).unwrap();
                 ball_view.qvel[i] = dist.sample(&mut rng);
             }
         }
@@ -569,7 +612,7 @@ impl FuzbAISimulator {
             self.current_time += LOW_TIMESTEP;
 
             // Store the state into the delayed buffer
-            if self.sample_steps > 0 && self.current_ll_step % self.sample_steps == 0 {
+            if self.current_ll_step.is_multiple_of(self.sample_steps) {
                 self.sample_state();
             }
 
@@ -660,6 +703,15 @@ impl FuzbAISimulator {
     */
     #[cfg(feature = "python-bindings")]
     #[new]
+    #[pyo3(signature = (
+        internal_step_factor,
+        sample_steps,
+        realtime=false,
+        simulated_delay_s_mean=0.0,
+        simulated_delay_s_variance=0.0,
+        model_path=None,
+        visual_config=None
+    ))]
     fn py_new(
         internal_step_factor: usize,
         sample_steps: usize,
@@ -667,9 +719,17 @@ impl FuzbAISimulator {
         simulated_delay_s_mean: f64,
         simulated_delay_s_variance: f64,
         model_path: Option<&str>,
-        visual_config: VisualConfig,
+        visual_config: Option<VisualConfig>,
     ) -> Self {
-        Self::new(internal_step_factor, sample_steps, realtime, simulated_delay_s_mean, simulated_delay_s_variance, model_path, visual_config)
+        Self::new(
+            internal_step_factor,
+            sample_steps,
+            realtime,
+            simulated_delay_s_mean,
+            simulated_delay_s_variance,
+            model_path,
+            visual_config.unwrap_or_default(),
+        )
     }
 
     #[cfg(feature = "python-bindings")]
@@ -713,8 +773,69 @@ impl FuzbAISimulator {
     }
 }
 
+/// Builder for [`FuzbAISimulator`].
+pub struct FuzbAISimulatorBuilder {
+    internal_step_factor: usize,
+    sample_steps: usize,
+    realtime: bool,
+    simulated_delay_s_mean: f64,
+    simulated_delay_s_variance: f64,
+    model_path: Option<String>,
+    visual_config: VisualConfig,
+}
+
+impl FuzbAISimulatorBuilder {
+    pub fn realtime(mut self, realtime: bool) -> Self {
+        self.realtime = realtime;
+        self
+    }
+
+    pub fn simulated_delay(mut self, mean_s: f64, variance_s: f64) -> Self {
+        self.simulated_delay_s_mean = mean_s;
+        self.simulated_delay_s_variance = variance_s;
+        self
+    }
+
+    pub fn model_path(mut self, path: &str) -> Self {
+        self.model_path = Some(path.to_string());
+        self
+    }
+
+    pub fn visual_config(mut self, config: VisualConfig) -> Self {
+        self.visual_config = config;
+        self
+    }
+
+    pub fn build(self) -> FuzbAISimulator {
+        FuzbAISimulator::new(
+            self.internal_step_factor,
+            self.sample_steps,
+            self.realtime,
+            self.simulated_delay_s_mean,
+            self.simulated_delay_s_variance,
+            self.model_path.as_deref(),
+            self.visual_config,
+        )
+    }
+}
+
 /// Non-Python exposed methods
 impl FuzbAISimulator {
+    /// Returns a builder for [`FuzbAISimulator`].
+    /// `internal_step_factor` and `sample_steps` are required;
+    /// all other options default to `false`/`0.0`/`None`.
+    pub fn builder(internal_step_factor: usize, sample_steps: usize) -> FuzbAISimulatorBuilder {
+        FuzbAISimulatorBuilder {
+            internal_step_factor,
+            sample_steps,
+            realtime: false,
+            simulated_delay_s_mean: 0.0,
+            simulated_delay_s_variance: 0.0,
+            model_path: None,
+            visual_config: VisualConfig::default(),
+        }
+    }
+
     /// Constructs a new [`FuzbAISimulator`].
     pub fn new(
         internal_step_factor: usize,
@@ -1034,12 +1155,7 @@ impl FuzbAISimulator {
         // while we are iterating the contacts (borrow checker). 
         for (contact_id, contact) in self.mj_data.contacts().iter().enumerate() {
             let geom_id = contact.geom2 as usize;  // geom1 is the ball geom's ID, geom2 is the other geom in contact
-            let frame;
-            let fx;
-            let fy;
-            let fz;
-            let fx_no_z;
-            let current_max;
+
             if geom_id >= GEOM_TO_ROD_MAPPING.len() {
                 continue;
             }
@@ -1050,12 +1166,12 @@ impl FuzbAISimulator {
             }
 
             let force = self.mj_data.contact_force(contact_id);
-            frame = contact.frame;
-            fx = -frame[0] * force[0];
-            fy = -frame[1] * force[0];
-            fz = -frame[2] * force[0];
-            fx_no_z = fx + fz.max(-fx).min(0.0);
-            current_max = &self.collision_forces[rod_id as usize];  // current max force
+            let frame = contact.frame;
+            let fx = -frame[0] * force[0];
+            let fy = -frame[1] * force[0];
+            let fz = -frame[2] * force[0];
+            let fx_no_z = fx + fz.max(-fx).min(0.0);
+            let current_max = &self.collision_forces[rod_id as usize];
             if f64::sqrt(fx_no_z.powi(2) + fy.powi(2)) > f64::sqrt(current_max[3].powi(2) + current_max[1].powi(2)) {
                 self.collision_forces[rod_id as usize] = [fx, fy, fz, fx_no_z];
                 self.collision_indices[rod_id as usize] = geom_id as isize;

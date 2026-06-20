@@ -69,20 +69,14 @@ fn physics(mut sim: FuzbAISimulator) {
 fn main() {
     // Create a simulation instance.
     // Multiple of these can exist, just not with the viewer enabled.
-    let mut sim = FuzbAISimulator::new(
+    let mut sim = FuzbAISimulator::builder(
         10, // internal_step_factor: .step_simulation() = N * (2 ms)
         5,  // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
-        true, // realtime
-        0.055, // simulated_delay_s_mean
-        0.0,   // simulated_delay_s_variance
-        None, // model_path
-        VisualConfig::new(
-            0,     // trace_length
-            false, // trace_ball
-            0x0,   // trace_rod_mask
-            true   // enable_viewer
-        )
-    );
+    )
+    .realtime(true)
+    .simulated_delay(0.055, 0.0)
+    .visual_config(VisualConfig::builder().enable_viewer(true).build())
+    .build();
 
     // Disable the built-in agent of the red side.
     sim.set_external_mode(PlayerTeam::Red, true);

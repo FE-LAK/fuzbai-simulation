@@ -83,7 +83,7 @@ impl<M: Deref<Target = MjModel>> Visualizer<M> {
                 scene,
                 // Extract the mask indicating which players to draw for the specific rod.
                 state.1.into_iter().zip(state.2).enumerate().map(|(rod_i, (t, r))|
-                    (rod_i, t, r, ((trace_rod_mask >> rod_i * 8) & 0xFF) as u8)
+                    (rod_i, t, r, ((trace_rod_mask >> (rod_i * 8)) & 0xFF) as u8)
                 ),
                 Some(rod_rgba)
             );

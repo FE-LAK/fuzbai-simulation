@@ -380,7 +380,7 @@ async fn get_docs() -> impl Responder {
 async fn get_camera_state(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let camera_state = {
         let mut lock = data.lock_unpoison();
-        update_team_frequency(&mut *lock);
+        update_team_frequency(&mut lock);
         lock.camera_state.clone()
     };
     HttpResponse::Ok().json(&camera_state)
@@ -426,7 +426,7 @@ async fn reset_rotations() -> impl Responder {
 async fn get_state(data: web::Data<Mutex<TeamState>>) -> impl Responder {
     let camera_state = {
         let mut lock = data.lock_unpoison();
-        update_team_frequency(&mut *lock);
+        update_team_frequency(&mut lock);
         lock.camera_state.clone()
     };
 

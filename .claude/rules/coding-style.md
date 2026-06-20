@@ -1,5 +1,12 @@
 # Coding Style
 
+## Meta
+
+- **Self-updating rules**: When the user gives explicit, major style feedback during a session
+  (e.g., correcting how code should be formatted or structured), update the relevant rule file
+  in `.claude/rules/` immediately so the rule is captured permanently and applies to all future
+  sessions and subagents.
+
 ## General
 
 - Use only ASCII characters in all code, comments, and strings.
@@ -47,6 +54,12 @@ serialization library, or std vs. tokio), separate them with an empty line.
 - **Opening brace**: When a function signature fits on one line, place `{` on the same line
   (K&R style). When parameters are split across multiple lines, place `{` on its own line
   (Allman style) so the body is visually separated from the signature.
+- **No inlined function bodies**: Never write a function body on the same line as its
+  signature (e.g., `fn foo(...) -> T { ... }`). Always expand the body to its own indented
+  lines, even for trivial one-liners such as builder setters.
+- **References for non-trivial types**: When binding a value larger than a pointer/reference
+  (e.g., an array, struct, or tuple larger than 8 bytes on a 64-bit target), bind it by
+  reference (`let x = &expr`) rather than copying it, unless a copy is explicitly required.
 - **`if let` over `matches!`**: In conditionals, prefer `if let Some(x) = expr` over
   `if matches!(expr, Some(x))`. `matches!` is acceptable inside `assert!` in tests.
 - **`debug_assert!` policy**: Use `debug_assert!` for invariants guaranteed by the

@@ -148,18 +148,14 @@ fn main() {
 
     /* Define simulation factory */
     let sim_factory = move |init_viewer| {
-        FuzbAISimulator::new(
+        FuzbAISimulator::builder(
             1, // internal_step_factor: .step_simulation() = N * (2 ms)
             5, // sample_steps: save state to delay buffer every N * (2 ms). .delayed_observation() returns discrete samples every N * 2ms.
-            true,
-            delay_s, // simulated_delay_s_mean
-            0.0,   // simulated_delay_s_variance
-            None,
-            VisualConfig::new(
-                0, false,
-                0, init_viewer
-            ),
         )
+        .realtime(true)
+        .simulated_delay(delay_s, 0.0)
+        .visual_config(VisualConfig::builder().enable_viewer(init_viewer).build())
+        .build()
     };
 
     /* Initialize simulation */
