@@ -219,6 +219,11 @@ pub struct FuzbAISimulator {
 
 #[cfg_attr(feature = "python-bindings", pymethods)]
 impl FuzbAISimulator {
+    /// Returns the current simulation time, in seconds.
+    pub fn current_time(&self) -> f64 {
+        self.current_time
+    }
+
     /// Checks whether the simulation episode is terminated (goal scored or ball out of the field).
     pub fn terminated(&self) -> bool {
         self.terminated
