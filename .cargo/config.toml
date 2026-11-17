@@ -8,3 +8,7 @@ rustflags = [
 rustflags = [
     "-C", "link-arg=-mmacosx-version-min=11.0",
 ]
+
+
+[env]
+MUJOCO_DYNAMIC_LINK_DIR = {value = "mujoco-3.3.7/lib", relative = true}
